@@ -37,6 +37,12 @@ def get_datasets():
     gsw_yearly = ee.ImageCollection("JRC/GSW1_4/YearlyHistory")
     hansen = ee.Image("UMD/hansen/global_forest_change_2024_v1_12")
     modis_lst = ee.ImageCollection("MODIS/061/MOD11A2")
+    modis_et = ee.ImageCollection("MODIS/061/MOD16A2GF")
+    smap_l4 = ee.ImageCollection("NASA/SMAP/SPL4SMGP/008")
+    grace = ee.ImageCollection("NASA/GRACE/MASS_GRIDS_V04/LAND")
+    soil_organic_carbon = ee.Image("OpenLandMap/SOL/SOL_ORGANIC-CARBON_USDA-6A1C_M/v02")
+    soil_texture = ee.Image("OpenLandMap/SOL/SOL_TEXTURE-CLASS_USDA-TT_M/v02")
+    flood_hazard = ee.ImageCollection("JRC/CEMS_GLOFAS/FloodHazard/v2_1")
 
     lt05 = ee.ImageCollection("LANDSAT/LT05/C02/T1_L2")
     le07 = ee.ImageCollection("LANDSAT/LE07/C02/T1_L2")
@@ -57,6 +63,12 @@ def get_datasets():
         "GSW_YEARLY": gsw_yearly,
         "HANSEN": hansen,
         "MODIS_LST": modis_lst,
+        "MODIS_ET": modis_et,
+        "SMAP_L4": smap_l4,
+        "GRACE": grace,
+        "SOIL_ORGANIC_CARBON": soil_organic_carbon,
+        "SOIL_TEXTURE": soil_texture,
+        "FLOOD_HAZARD": flood_hazard,
         "LT05": lt05,
         "LE07": le07,
         "LC08": lc08,
@@ -123,7 +135,7 @@ def satellite_with_polygon(geom: ee.Geometry, last_full_year: int) -> ee.Image:
     rgb = current_sentinel_rgb(geom, last_full_year).visualize(
         bands=["B4", "B3", "B2"],
         min=0,
-        max=3000
+        max=2500
     )
     return add_polygon_overlay(rgb, geom)
 
@@ -526,6 +538,125 @@ def lst_recent_mean_from_range(geom: ee.Geometry, hist_start: int, hist_end: int
     return ee.Number(fc.aggregate_mean("value"))
 
 
+
+
+def _reduce_mean_first_band(image: ee.Image, geom: ee.Geometry, scale: int):
+    reduction = image.reduceRegion(
+        reducer=ee.Reducer.mean(),
+        geometry=geom,
+        scale=scale,
+        maxPixels=1e13,
+        bestEffort=True
+    )
+    first_band = ee.String(image.bandNames().get(0))
+    return reduction.get(first_band)
+
+
+def soil_moisture_mean(geom: ee.Geometry, hist_end: int):
+    ds = get_datasets()
+    start_year = max(2015, hist_end - 1)
+    image = (
+        ds["SMAP_L4"]
+        .filterBounds(geom)
+        .filterDate(f"{start_year}-01-01", f"{hist_end}-12-31")
+        .select("sm_surface")
+        .mean()
+    )
+    return _reduce_mean_first_band(image, geom, 11000)
+
+
+def evapotranspiration_mean(geom: ee.Geometry, hist_end: int):
+    ds = get_datasets()
+    start_year = max(2001, hist_end - 1)
+    image = (
+        ds["MODIS_ET"]
+        .filterBounds(geom)
+        .filterDate(f"{start_year}-01-01", f"{hist_end}-12-31")
+        .select("ET")
+        .mean()
+    )
+    raw = _reduce_mean_first_band(image, geom, 500)
+    return ee.Algorithms.If(ee.Algorithms.IsEqual(raw, None), None, ee.Number(raw).multiply(0.1))
+
+
+def groundwater_anomaly_mean(geom: ee.Geometry, hist_end: int):
+    ds = get_datasets()
+    end_year = min(hist_end, 2017)
+    start_year = max(2003, end_year - 1)
+    image = (
+        ds["GRACE"]
+        .filterBounds(geom)
+        .filterDate(f"{start_year}-01-01", f"{end_year}-12-31")
+        .select("lwe_thickness_csr")
+        .mean()
+    )
+    return _reduce_mean_first_band(image, geom, 25000)
+
+
+def soil_organic_carbon_mean(geom: ee.Geometry):
+    ds = get_datasets()
+    band = ee.String(ds["SOIL_ORGANIC_CARBON"].bandNames().get(0))
+    image = ds["SOIL_ORGANIC_CARBON"].select([band])
+    return image.reduceRegion(
+        reducer=ee.Reducer.mean(),
+        geometry=geom,
+        scale=250,
+        maxPixels=1e13,
+        bestEffort=True
+    ).get(band)
+
+
+def soil_texture_class_mean(geom: ee.Geometry):
+    ds = get_datasets()
+    band = ee.String(ds["SOIL_TEXTURE"].bandNames().get(0))
+    image = ds["SOIL_TEXTURE"].select([band])
+    return image.reduceRegion(
+        reducer=ee.Reducer.mean(),
+        geometry=geom,
+        scale=250,
+        maxPixels=1e13,
+        bestEffort=True
+    ).get(band)
+
+
+def flood_risk_mean(geom: ee.Geometry):
+    ds = get_datasets()
+    image = ee.Image(ds["FLOOD_HAZARD"].filterBounds(geom).first()).select("RP100_depth")
+    return _reduce_mean_first_band(image, geom, 90)
+
+
+def flood_risk_with_polygon(geom: ee.Geometry) -> ee.Image:
+    ds = get_datasets()
+    image = ee.Image(ds["FLOOD_HAZARD"].filterBounds(geom).first()).select("RP100_depth")
+    vis = image.visualize(min=0, max=2, palette=["#f7fbff", "#c6dbef", "#6baed6", "#2171b5", "#08306b"])
+    return add_polygon_overlay(vis, geom)
+
+
+def soil_condition_with_polygon(geom: ee.Geometry) -> ee.Image:
+    ds = get_datasets()
+    band = ee.String(ds["SOIL_ORGANIC_CARBON"].bandNames().get(0))
+    image = ds["SOIL_ORGANIC_CARBON"].select([band])
+    vis = image.visualize(min=0, max=80, palette=["#f7fcb9", "#addd8e", "#31a354", "#006837"])
+    return add_polygon_overlay(vis, geom)
+
+
+def heat_stress_with_polygon(geom: ee.Geometry, hist_end: int) -> ee.Image:
+    ds = get_datasets()
+    start = max(hist_end - 2, 2001)
+    image = (
+        ds["MODIS_LST"]
+        .filterBounds(geom)
+        .filterDate(f"{start}-01-01", f"{hist_end}-12-31")
+        .select("LST_Day_1km")
+        .mean()
+        .multiply(0.02)
+        .subtract(273.15)
+        .rename("LST_C")
+    )
+    vis = image.visualize(min=20, max=40, palette=["#2c7bb6", "#abd9e9", "#ffffbf", "#fdae61", "#d7191c"])
+    return add_polygon_overlay(vis, geom)
+
+
 def compute_metrics(geom: ee.Geometry, hist_start: int, hist_end: int, last_full_year: int):
     _, ndvi_mean = current_ndvi_image_and_mean(geom, last_full_year)
     ndvi_hist = landsat_annual_ndvi_collection(geom, max(hist_start, 1984), hist_end)
@@ -536,7 +667,8 @@ def compute_metrics(geom: ee.Geometry, hist_start: int, hist_end: int, last_full
             reducer=ee.Reducer.sum(),
             geometry=geom,
             scale=10,
-            maxPixels=1e13
+            maxPixels=1e13,
+            bestEffort=True
         ).get("area"),
         "ndvi_current": ndvi_mean,
         "ndvi_trend": series_recent_vs_early_delta(ndvi_hist),
@@ -549,7 +681,13 @@ def compute_metrics(geom: ee.Geometry, hist_start: int, hist_end: int, last_full
         "bio_proxy": bio_proxy_mean(geom),
         "forest_ha": forest_summary["forest_ha"],
         "forest_loss_ha": forest_summary["loss_ha"],
-        "forest_loss_pct": forest_summary["loss_pct"]
+        "forest_loss_pct": forest_summary["loss_pct"],
+        "soil_moisture": soil_moisture_mean(geom, hist_end),
+        "evapotranspiration": evapotranspiration_mean(geom, hist_end),
+        "groundwater_anomaly": groundwater_anomaly_mean(geom, hist_end),
+        "soil_organic_carbon": soil_organic_carbon_mean(geom),
+        "soil_texture_class": soil_texture_class_mean(geom),
+        "flood_risk": flood_risk_mean(geom)
     })
 
     return metrics.getInfo()
