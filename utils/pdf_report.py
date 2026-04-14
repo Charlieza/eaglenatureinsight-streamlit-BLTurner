@@ -72,8 +72,10 @@ def build_pdf_report(
     risk: dict,
     image_payloads: list,
     chart_payloads: list,
+    **kwargs,
 ) -> bytes:
     buffer = BytesIO()
+    report_details = kwargs.get("report_details", {})
 
     doc = SimpleDocTemplate(
         buffer,
