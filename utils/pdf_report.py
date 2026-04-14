@@ -72,8 +72,10 @@ def build_pdf_report(
     risk: dict,
     image_payloads: list,
     chart_payloads: list,
+    **kwargs,
 ) -> bytes:
     buffer = BytesIO()
+    report_details = kwargs.get("report_details", {})
 
     doc = SimpleDocTemplate(
         buffer,
@@ -220,3 +222,17 @@ def build_pdf_report(
     pdf_bytes = buffer.getvalue()
     buffer.close()
     return pdf_bytes
+
+def _resolve_logo_path() -> Optional[Path]:
+    candidates = [
+        Path(__file__).resolve().parent.parent / "assets" / "logo.png",
+        Path(__file__).resolve().parent / "assets" / "logo.png",
+        Path("assets") / "logo.png",
+    ]
+    for candidate in candidates:
+        try:
+            if candidate.exists():
+                return candidate
+        except Exception:
+            pass
+    return None
