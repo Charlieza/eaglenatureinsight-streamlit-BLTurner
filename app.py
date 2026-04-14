@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from datetime import date
@@ -448,7 +447,7 @@ init_state()
 if not st.session_state["authenticated"]:
     login_gate()
 
-initialize_ee_from_secrets()
+initialize_ee_from_secrets(st)
 
 st.markdown(
     f"""
