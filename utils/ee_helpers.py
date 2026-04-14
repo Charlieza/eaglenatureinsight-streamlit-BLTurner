@@ -657,19 +657,31 @@ def heat_stress_with_polygon(geom: ee.Geometry, hist_end: int) -> ee.Image:
     return add_polygon_overlay(vis, geom)
 
 
+
+
+def _get_info_safe(obj):
+    try:
+        return obj.getInfo()
+    except Exception:
+        return None
+
+
+def _safe_reduce_area_ha(geom: ee.Geometry):
+    return ee.Image.pixelArea().divide(10000).reduceRegion(
+        reducer=ee.Reducer.sum(),
+        geometry=geom,
+        scale=30,
+        maxPixels=1e13,
+        bestEffort=True,
+        tileScale=2,
+    ).get("area")
 def compute_metrics(geom: ee.Geometry, hist_start: int, hist_end: int, last_full_year: int):
     _, ndvi_mean = current_ndvi_image_and_mean(geom, last_full_year)
     ndvi_hist = landsat_annual_ndvi_collection(geom, max(hist_start, 1984), hist_end)
     forest_summary = forest_loss_summary(geom)
 
-    metrics = ee.Dictionary({
-        "area_ha": ee.Image.pixelArea().divide(10000).reduceRegion(
-            reducer=ee.Reducer.sum(),
-            geometry=geom,
-            scale=10,
-            maxPixels=1e13,
-            bestEffort=True
-        ).get("area"),
+    metric_exprs = {
+        "area_ha": _safe_reduce_area_ha(geom),
         "ndvi_current": ndvi_mean,
         "ndvi_trend": series_recent_vs_early_delta(ndvi_hist),
         "rain_anom_pct": rainfall_anomaly_pct_from_range(geom, hist_start, hist_end),
@@ -687,7 +699,11 @@ def compute_metrics(geom: ee.Geometry, hist_start: int, hist_end: int, last_full
         "groundwater_anomaly": groundwater_anomaly_mean(geom, hist_end),
         "soil_organic_carbon": soil_organic_carbon_mean(geom),
         "soil_texture_class": soil_texture_class_mean(geom),
-        "flood_risk": flood_risk_mean(geom)
-    })
+        "flood_risk": flood_risk_mean(geom),
+    }
 
-    return metrics.getInfo()
+    results = {}
+    for key, expr in metric_exprs.items():
+        results[key] = _get_info_safe(expr)
+
+    return results
