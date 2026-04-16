@@ -3,14 +3,13 @@ from __future__ import annotations
 from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
 
+import folium
 import pandas as pd
 import plotly.express as px
 import streamlit as st
-import folium
 from folium.plugins import Draw
 from streamlit_folium import st_folium
 
-# Flexible imports so the file works whether helpers live in utils/ or beside this file
 try:
     from utils.ee_helpers import (
         initialize_ee_from_secrets,
@@ -61,7 +60,7 @@ st.set_page_config(page_title="EagleNatureInsight | BL Turner", layout="wide")
 
 APP_TITLE = "EagleNatureInsight | BL Turner Nature Intelligence"
 APP_SUBTITLE = "TNFD-aligned circular economy screening platform"
-APP_TAGLINE = "Site viability • Nature dependencies • Operational risk • Business readiness"
+APP_TAGLINE = "Locate • Evaluate • Assess • Prepare"
 
 CURRENT_YEAR = date.today().year
 LAST_FULL_YEAR = CURRENT_YEAR - 1
@@ -82,7 +81,7 @@ BRAND = {
 
 BL_TURNER_SITE = {
     "name": "BL Turner | KwaDukuza organic waste project",
-    "lat": -29.2675,   # placeholder derived from KwaDukuza area; replace with exact site coordinates when confirmed
+    "lat": -29.2675,
     "lon": 31.2860,
     "buffer_m": 900,
     "zoom": 12,
@@ -96,10 +95,7 @@ BL_TURNER_SITE = {
         "Agricultural waste where available",
         "Abattoir waste including meat and blood",
     ],
-    "supply_areas": [
-        "eThekwini Municipality",
-        "iLembe District",
-    ],
+    "supply_areas": ["eThekwini Municipality", "iLembe District"],
     "fertiliser_destination": "KZN farmlands and outer-lying areas",
     "business_stage": "Pre-development",
     "land_context": "Privately owned land close to landfill with intent to divert waste from landfill",
@@ -107,9 +103,6 @@ BL_TURNER_SITE = {
 
 CATEGORY = "Circular Economy / Organic Waste Processing"
 
-# ----------------------------
-# State and login
-# ----------------------------
 
 def init_state() -> None:
     defaults = {
@@ -132,12 +125,10 @@ def init_state() -> None:
 
 
 def check_login(username: str, password: str) -> bool:
-    creds = {}
     try:
         creds = st.secrets.get("auth", {})
     except Exception:
         creds = {}
-
     configured_user = creds.get("username", "admin")
     configured_pass = creds.get("password", "spaceeagle-demo")
     return username == configured_user and password == configured_pass
@@ -158,7 +149,6 @@ def login_gate() -> None:
         username = st.text_input("Username")
         password = st.text_input("Password", type="password")
         submitted = st.form_submit_button("Sign in", use_container_width=True)
-
         if submitted:
             if check_login(username.strip(), password):
                 st.session_state["authenticated"] = True
@@ -167,17 +157,11 @@ def login_gate() -> None:
                 st.rerun()
             else:
                 st.session_state["auth_error"] = "Incorrect username or password."
-
     if st.session_state.get("auth_error"):
         st.error(st.session_state["auth_error"])
-
     st.caption("Tip: set auth.username and auth.password in Streamlit secrets for production.")
     st.stop()
 
-
-# ----------------------------
-# Helpers
-# ----------------------------
 
 def has_data(value: Any) -> bool:
     if value is None or value == "":
@@ -186,15 +170,6 @@ def has_data(value: Any) -> bool:
         return pd.notna(value)
     except Exception:
         return True
-
-
-def fmt_num(value: Any, digits: int = 1, suffix: str = "") -> str:
-    if not has_data(value):
-        return "Not available"
-    try:
-        return f"{float(value):.{digits}f}{suffix}"
-    except Exception:
-        return str(value)
 
 
 def safe_float(value: Any) -> Optional[float]:
@@ -206,10 +181,21 @@ def safe_float(value: Any) -> Optional[float]:
         return None
 
 
+def fmt_num(value: Any, digits: int = 1, suffix: str = "") -> str:
+    number = safe_float(value)
+    if number is None:
+        return "Not available"
+    return f"{number:.{digits}f}{suffix}"
+
+
+def yes_no(flag: bool) -> str:
+    return "Yes" if flag else "No"
+
+
 def metric_card(label: str, value: str, subtext: str = "") -> None:
     st.markdown(
         f"""
-        <div style="padding:14px;border:1px solid {BRAND['border']};border-radius:18px;background:{BRAND['card']};height:124px;box-shadow:0 6px 18px rgba(17,24,39,0.06);">
+        <div style="padding:14px;border:1px solid {BRAND['border']};border-radius:18px;background:{BRAND['card']};height:126px;box-shadow:0 6px 18px rgba(17,24,39,0.06);">
             <div style="font-size:12px;color:{BRAND['muted']};">{label}</div>
             <div style="font-size:28px;font-weight:700;color:{BRAND['text']};margin-top:6px;">{value}</div>
             <div style="font-size:11px;color:{BRAND['muted']};margin-top:5px;">{subtext}</div>
@@ -224,124 +210,335 @@ def display_metric_cards(items: List[Dict[str, str]], per_row: int = 4) -> None:
     if not valid:
         return
     for i in range(0, len(valid), per_row):
-        row = valid[i:i + per_row]
+        row = valid[i : i + per_row]
         cols = st.columns(per_row)
         for idx, item in enumerate(row):
             with cols[idx]:
                 metric_card(item["label"], item["value"], item.get("subtext", ""))
 
 
-def site_story(metrics: Dict[str, Any]) -> Dict[str, List[str] | str]:
+def status_from_range(value: Optional[float], favourable_max: Optional[float] = None, watch_max: Optional[float] = None,
+                      warning_max: Optional[float] = None, inverse: bool = False) -> str:
+    if value is None:
+        return "Not available"
+    if not inverse:
+        if favourable_max is not None and value <= favourable_max:
+            return "Favourable"
+        if watch_max is not None and value <= watch_max:
+            return "Watch"
+        if warning_max is not None and value <= warning_max:
+            return "Warning"
+        return "High concern"
+    if favourable_max is not None and value >= favourable_max:
+        return "Favourable"
+    if watch_max is not None and value >= watch_max:
+        return "Watch"
+    if warning_max is not None and value >= warning_max:
+        return "Warning"
+    return "High concern"
+
+
+def rainfall_status(rain: Optional[float]) -> str:
+    if rain is None:
+        return "Not available"
+    if rain > -5:
+        return "Favourable"
+    if rain > -10:
+        return "Watch"
+    if rain > -20:
+        return "Warning"
+    return "High concern"
+
+
+def ndvi_status(ndvi: Optional[float]) -> str:
+    return status_from_range(ndvi, favourable_max=0.50, watch_max=0.35, warning_max=0.20, inverse=True)
+
+
+def heat_status(lst: Optional[float]) -> str:
+    return status_from_range(lst, favourable_max=28, watch_max=30, warning_max=33)
+
+
+def flood_status(flood: Optional[float]) -> str:
+    return status_from_range(flood, favourable_max=0, watch_max=0.2, warning_max=0.5)
+
+
+def soil_moisture_status(v: Optional[float]) -> str:
+    return status_from_range(v, favourable_max=0.25, watch_max=0.18, warning_max=0.12, inverse=True)
+
+
+def access_status(minutes: Optional[float]) -> str:
+    return status_from_range(minutes, favourable_max=60, watch_max=120, warning_max=180)
+
+
+def value_or_phrase(value: Optional[float], good_text: str, mid_text: str, bad_text: str,
+                    good_test, mid_test) -> str:
+    if value is None:
+        return "The dataset does not return a reliable reading for this indicator at the selected boundary."
+    if good_test(value):
+        return good_text
+    if mid_test(value):
+        return mid_text
+    return bad_text
+
+
+def site_story(metrics: Dict[str, Any], tonnes: int, stage: str) -> Dict[str, Any]:
     rain = safe_float(metrics.get("rain_anom_pct"))
     lst = safe_float(metrics.get("lst_mean"))
     flood = safe_float(metrics.get("flood_risk"))
     soil_moisture = safe_float(metrics.get("soil_moisture"))
     market = safe_float(metrics.get("travel_time_to_market"))
-    water_occ = safe_float(metrics.get("water_occ"))
+    water = safe_float(metrics.get("water_context_signal_pct") or metrics.get("water_occ"))
+    tree = safe_float(metrics.get("tree_cover_context_pct") or metrics.get("tree_pct"))
+    slope = safe_float(metrics.get("slope"))
 
     strengths: List[str] = []
     pressures: List[str] = []
     actions: List[str] = []
 
-    strengths.append("The site is close to landfill and aligned with a landfill-diversion use case, which supports the core waste-to-value business model.")
+    strengths.append(
+        f"At {tonnes} tonnes per day, the project is large enough for site conditions, transport reliability, drainage, and water planning to materially affect the business case."
+    )
+    strengths.append(
+        f"The operation is still at the {stage.lower()} stage, which means layout, drainage, water storage, traffic routing, and buffer decisions can still be improved before capital is locked in."
+    )
+
     if flood is not None and flood < 0.2:
-        strengths.append("Flood exposure looks limited in the current screening, which is positive for siting and operations.")
+        strengths.append(f"Flood depth is about {flood:.2f} m, which suggests flood exposure is present but not currently dominant in this screening.")
+    elif flood is not None:
+        pressures.append(f"Flood depth is about {flood:.2f} m, which means drainage and placement of digesters, storage, and roads should be treated as a design issue, not an afterthought.")
+        actions.append("Review road levels, bunding, runoff pathways, and where sensitive equipment or stockpiles would sit on the site.")
+
     if market is not None and market <= 120:
-        strengths.append("The site appears reasonably connected to nearby urban supply areas, which supports waste collection and product distribution.")
-    if water_occ is not None and water_occ >= 5:
-        strengths.append("The surrounding landscape shows at least some visible water context, which is helpful for broader water planning.")
+        strengths.append(f"Travel time to market or urban access is about {market:.0f} minutes, which is workable for moving waste in and products out if routing is planned properly.")
+    elif market is not None:
+        pressures.append(f"Travel time to market is about {market:.0f} minutes, so transport cost and feedstock continuity could weaken margins if routes are not tightly managed.")
+        actions.append("Map the main waste suppliers and prioritise route efficiency, backhauls, and supply contracts before scale-up.")
 
     if rain is not None and rain < -10:
-        pressures.append("Recent rainfall is below the long-term baseline, so water planning should be treated as an operational priority from the start.")
-        actions.append("Build water security into the business model early, including storage, reuse, and contingency planning.")
+        pressures.append(f"Rainfall is {rain:.1f}% below the long-term baseline, which raises the importance of water storage, reuse, and drought-proof operating design.")
+        actions.append("Treat water security as part of the financial model, not only as an environmental issue.")
+    elif rain is not None:
+        strengths.append(f"Rainfall is {rain:.1f}% relative to the long-term baseline, which does not by itself suggest an extreme rainfall signal at this stage.")
+
     if lst is not None and lst >= 30:
-        pressures.append("Heat conditions are elevated, which may affect worker comfort, odour management, and process performance.")
-        actions.append("Design for heat management, shading, ventilation, and safe operating conditions.")
+        pressures.append(f"Recent land-surface temperature is about {lst:.1f} °C, which may increase odour pressure, worker discomfort, and the need for heat-conscious site design.")
+        actions.append("Build shade, ventilation, and heat-safe operating zones into the site design and community-management plan.")
+    elif lst is not None:
+        strengths.append(f"Recent land-surface temperature is about {lst:.1f} °C, which does not indicate an extreme heat signal for the selected boundary.")
+
     if soil_moisture is not None and soil_moisture < 0.18:
-        pressures.append("Surface soil conditions look relatively dry, which matters for landscaping, drainage, dust, and rehabilitation planning.")
-        actions.append("Plan drainage, surfacing, and any greening or rehabilitation areas carefully.")
-    if flood is not None and flood >= 0.2:
-        pressures.append("Flood risk is visible in the landscape and may affect site design, storage, and access roads.")
-        actions.append("Review drainage, bunding, and the placement of sensitive infrastructure.")
-    if market is not None and market > 120:
-        pressures.append("Travel time to market is extended, which may increase transport cost and affect supply reliability.")
-        actions.append("Prioritise supplier mapping and route planning as part of pre-development work.")
+        pressures.append(f"Soil moisture is {soil_moisture:.3f}, which points to relatively dry near-surface conditions; that matters for dust, landscaping, rehabilitation, and runoff control.")
+        actions.append("Plan hardstanding, dust control, and rehabilitation areas carefully so the site does not create avoidable nuisance or erosion pressure.")
+
+    if water is not None:
+        if water >= 15:
+            strengths.append(f"The broader water-context signal is {water:.1f}, which suggests visible water features are part of the wider landscape and should be considered in drainage and protection planning.")
+        elif water < 5:
+            pressures.append(f"The broader water-context signal is only {water:.1f}, which suggests low visible water presence and reinforces the need for conservative water planning.")
+            actions.append("Design with low-water assumptions in mind and emphasise storage, reuse, and operational efficiency.")
+
+    if tree is not None and tree < 10:
+        pressures.append(f"Tree-cover context is about {tree:.1f}%, so the site does not sit in a strongly buffered or wooded landscape; screening, wind, heat, and visual buffering may therefore need more deliberate design.")
+        actions.append("Use planting, screening, and landscape buffers where needed to support community fit and site resilience.")
+
+    if slope is not None and slope > 8:
+        pressures.append(f"Average slope is about {slope:.1f}°, which may complicate drainage, civil works, and access design.")
+        actions.append("Check cut-and-fill, drainage direction, and vehicle movement areas before final engineering decisions.")
 
     if not pressures:
-        pressures.append("No single dominant environmental warning stands out in this early screening, but water, transport, and community fit should still be tested carefully.")
-        actions.append("Use this screening as a decision-support layer before final site design and supplier agreements are locked in.")
+        pressures.append("No single dominant environmental warning stands out in this first screening, but feedstock continuity, drainage, odour, community fit, and water design still need disciplined planning.")
+        actions.append("Use this screening as an early decision-support tool before finalising detailed design, supplier contracts, and investor messaging.")
 
-    return {
-        "headline": "This platform turns environmental data into a simple business story: can this site support a circular waste-to-fertiliser operation reliably and with manageable risk?",
-        "strengths": strengths[:4],
-        "pressures": pressures[:4],
-        "actions": actions[:4],
-    }
+    headline = (
+        "This platform asks a simple business question: can BL Turner run a waste-to-fertiliser and biogas operation here reliably, "
+        "without avoidable environmental or operating friction? The answer depends less on one score and more on a portfolio of signals across water, heat, access, flood exposure, and site fit."
+    )
+    return {"headline": headline, "strengths": strengths[:5], "pressures": pressures[:5], "actions": actions[:5]}
 
 
-def dependency_impact_view(metrics: Dict[str, Any]) -> Dict[str, List[Dict[str, str]]]:
-    water_occ = fmt_num(metrics.get("water_occ"), 1)
-    rain = fmt_num(metrics.get("rain_anom_pct"), 1, "%")
-    flood = fmt_num(metrics.get("flood_risk"), 2, " m")
-    heat = fmt_num(metrics.get("lst_mean"), 1, " °C")
-    market = fmt_num(metrics.get("travel_time_to_market"), 0, " min")
+def dependency_impact_view(metrics: Dict[str, Any], tonnes: int) -> Dict[str, List[Dict[str, str]]]:
+    water = safe_float(metrics.get("water_context_signal_pct") or metrics.get("water_occ"))
+    rain = safe_float(metrics.get("rain_anom_pct"))
+    flood = safe_float(metrics.get("flood_risk"))
+    heat = safe_float(metrics.get("lst_mean"))
+    market = safe_float(metrics.get("travel_time_to_market"))
+    tree = safe_float(metrics.get("tree_cover_context_pct") or metrics.get("tree_pct"))
 
     dependencies = [
         {
-            "name": "Waste supply",
-            "story": "The business depends on a steady inflow of organic waste from municipalities, restaurants, distribution centres, and possibly agricultural and abattoir sources.",
-            "what_to_watch": "Supply distance, seasonal variation, and continuity of feedstock contracts.",
+            "name": "Feedstock continuity",
+            "story": f"At {tonnes} tonnes per day, the business depends on a steady inflow of food waste, commercial kitchen waste, distribution-centre waste, and other approved organic streams. The environmental platform cannot replace commercial contracts, but it does show whether the site is likely to add transport, flood, or heat friction to that supply model.",
+            "watch": f"Access signal {fmt_num(market, 0, ' min')}; flood signal {fmt_num(flood, 2, ' m')}.",
         },
         {
-            "name": "Water",
-            "story": f"The business depends on water for operations and cleaning. The surrounding water context signal is {water_occ}, while rainfall conditions are currently {rain}.",
-            "what_to_watch": "Water security, storage, and reuse options.",
+            "name": "Water for operations and cleaning",
+            "story": f"The site depends on water for processing, washdown, and general operations. Current rainfall is {fmt_num(rain, 1, '%')} relative to the long-term baseline and the broader water-context signal is {fmt_num(water, 1)}.",
+            "watch": "Storage, reuse, washdown planning, and whether water stress could push up operating cost.",
         },
         {
-            "name": "Land and access",
-            "story": f"The business depends on a site that stays functional in wet and dry periods. Current flood signal is {flood}, and travel access is about {market}.",
-            "what_to_watch": "Drainage, road access, layout, and logistics.",
+            "name": "A workable site and stable access",
+            "story": f"Current flood depth is {fmt_num(flood, 2, ' m')} and travel access is about {fmt_num(market, 0, ' min')}. These are practical design and operating signals, not abstract ESG numbers.",
+            "watch": "Drainage layout, road access, all-weather operations, and safe movement of heavy vehicles.",
         },
         {
-            "name": "Operating conditions",
-            "story": f"Heat conditions are around {heat}, which matters for workers, odour management, and process stability.",
-            "what_to_watch": "Shade, airflow, and safe operational design.",
+            "name": "Operating conditions and community fit",
+            "story": f"Recent land-surface temperature is about {fmt_num(heat, 1, ' °C')} and tree-cover context is {fmt_num(tree, 1, '%')}. Those signals matter because hotter, less-buffered sites can intensify worker discomfort, visual exposure, and nuisance management.",
+            "watch": "Shade, screening, odour routing, and how the site presents to surrounding communities.",
         },
     ]
 
     impacts = [
         {
             "name": "Landfill diversion",
-            "story": "The project can reduce the amount of organic waste that ends up in landfill.",
-            "business_link": "This supports a clear climate and circular-economy value proposition.",
+            "story": f"If the plant runs at the entered capacity of {tonnes} tonnes per day, it can materially reduce the amount of organic waste that goes to landfill.",
+            "link": "This is the clearest circular-economy story in the platform and should be central in funding and partnership discussions.",
         },
         {
             "name": "Biogas and fertiliser output",
-            "story": "The project can convert waste into usable products: energy and soil inputs.",
-            "business_link": "This creates revenue and strengthens the commercial case.",
+            "story": "The project can convert a disposal problem into usable products. That improves the business case only if the site remains operationally stable and feedstock keeps flowing.",
+            "link": "Nature and operations affect revenue quality, not just compliance.",
         },
         {
-            "name": "Local nuisance risk",
-            "story": "Transport, odour, noise, and handling can create local concern if not well managed.",
-            "business_link": "This can affect community acceptance and operating stability.",
+            "name": "Local nuisance and acceptance risk",
+            "story": f"Heat at {fmt_num(heat, 1, ' °C')}, access at {fmt_num(market, 0, ' min')}, and any unmanaged runoff or poor layout could create odour, traffic, or neighbour concern.",
+            "link": "Community resistance can slow the project even where the core technology is sound.",
         },
         {
             "name": "Nature pressure around the site",
-            "story": "Poor drainage, heat, or unsuitable layout can worsen runoff, soil damage, or local environmental stress.",
-            "business_link": "This can raise future operating and compliance costs.",
+            "story": f"Flood signal {fmt_num(flood, 2, ' m')} and tree-cover context {fmt_num(tree, 1, '%')} help show whether the surrounding landscape is likely to absorb disturbance well or whether the project should use more careful buffers and drainage controls.",
+            "link": "This affects future operating cost and reputational resilience.",
         },
     ]
     return {"dependencies": dependencies, "impacts": impacts}
 
 
-def business_value_table(metrics: Dict[str, Any]) -> pd.DataFrame:
+def tnfd_portfolio_matrix(metrics: Dict[str, Any], tonnes: int, stage: str) -> pd.DataFrame:
+    rain = safe_float(metrics.get("rain_anom_pct"))
+    heat = safe_float(metrics.get("lst_mean"))
+    flood = safe_float(metrics.get("flood_risk"))
+    water = safe_float(metrics.get("water_context_signal_pct") or metrics.get("water_occ"))
+    soil = safe_float(metrics.get("soil_moisture"))
+    access = safe_float(metrics.get("travel_time_to_market"))
+    tree = safe_float(metrics.get("tree_cover_context_pct") or metrics.get("tree_pct"))
+    slope = safe_float(metrics.get("slope"))
+
     rows = [
-        ["Waste diverted", "Tonnes/day", "100", "Potential gate-fee income and landfill savings"],
-        ["Biogas output", "Energy units", "Project-specific", "Reduced energy cost or energy sale potential"],
-        ["Fertiliser output", "Tonnes/month", "Project-specific", "Revenue from soil-input product"],
-        ["Water risk", "Environmental signal", fmt_num(metrics.get("rain_anom_pct"), 1, "%"), "Higher water risk can raise operating cost"],
-        ["Flood exposure", "Depth proxy", fmt_num(metrics.get("flood_risk"), 2, " m"), "Higher flood risk can increase infrastructure cost"],
-        ["Transport effort", "Travel time", fmt_num(metrics.get("travel_time_to_market"), 0, " min"), "Longer trips can reduce margins"],
+        {
+            "TNFD lens": "Dependency",
+            "Indicator": "Water planning",
+            "Current reading": fmt_num(rain, 1, "%"),
+            "Status": rainfall_status(rain),
+            "What it means": f"Rainfall is {fmt_num(rain, 1, '%')} against the long-term baseline, so the site should not assume water will always be abundant.",
+            "Why it matters to BL Turner": "Water is needed for operations, cleaning, and stable processing.",
+            "What BL Turner should do": "Build storage, reuse, and dry-period planning into the business model.",
+        },
+        {
+            "TNFD lens": "Dependency",
+            "Indicator": "Visible water context",
+            "Current reading": fmt_num(water, 1),
+            "Status": status_from_range(water, favourable_max=15, watch_max=5, warning_max=0, inverse=True),
+            "What it means": f"The broader water-context signal is {fmt_num(water, 1)}, which helps show whether the surrounding landscape has visible water features or a drier operating context.",
+            "Why it matters to BL Turner": "It shapes drainage, protection, and water-security thinking.",
+            "What BL Turner should do": "Overlay this with internal water demand, storage, and washdown design.",
+        },
+        {
+            "TNFD lens": "Risk",
+            "Indicator": "Flood exposure",
+            "Current reading": fmt_num(flood, 2, " m"),
+            "Status": flood_status(flood),
+            "What it means": f"Mapped flood depth is {fmt_num(flood, 2, ' m')}, which gives an early signal on whether roads, digesters, and storage areas may need more careful siting.",
+            "Why it matters to BL Turner": "Flooding can interrupt operations and raise infrastructure cost.",
+            "What BL Turner should do": "Use drainage, levels, bunding, and access design to reduce operational disruption.",
+        },
+        {
+            "TNFD lens": "Risk",
+            "Indicator": "Heat and odour pressure",
+            "Current reading": fmt_num(heat, 1, " °C"),
+            "Status": heat_status(heat),
+            "What it means": f"Land-surface temperature is {fmt_num(heat, 1, ' °C')}, which is an early warning for worker comfort, nuisance management, and heat-aware design.",
+            "Why it matters to BL Turner": "Higher heat can make site management harder and community issues more sensitive.",
+            "What BL Turner should do": "Plan shade, airflow, and operations so hot periods do not create avoidable friction.",
+        },
+        {
+            "TNFD lens": "Dependency",
+            "Indicator": "Soil and drainage condition",
+            "Current reading": fmt_num(soil, 3),
+            "Status": soil_moisture_status(soil),
+            "What it means": f"Soil moisture is {fmt_num(soil, 3)}, which helps indicate whether near-surface conditions are dry or wet in a way that could affect dust, drainage, and rehabilitation.",
+            "Why it matters to BL Turner": "This influences runoff control, landscaping, and nuisance prevention.",
+            "What BL Turner should do": "Use hardstanding, drainage control, and landscaping deliberately.",
+        },
+        {
+            "TNFD lens": "Opportunity",
+            "Indicator": "Access and logistics",
+            "Current reading": fmt_num(access, 0, " min"),
+            "Status": access_status(access),
+            "What it means": f"Estimated travel time is {fmt_num(access, 0, ' min')}, which is a practical logistics signal for collecting waste and distributing outputs.",
+            "Why it matters to BL Turner": f"At {tonnes} tonnes/day, weak routing can quickly erode margins.",
+            "What BL Turner should do": "Match site selection with supplier mapping and route planning.",
+        },
+        {
+            "TNFD lens": "Impact",
+            "Indicator": "Landscape buffering",
+            "Current reading": fmt_num(tree, 1, "%"),
+            "Status": status_from_range(tree, favourable_max=20, watch_max=10, warning_max=5, inverse=True),
+            "What it means": f"Tree-cover context is {fmt_num(tree, 1, '%')}, which helps show whether the project sits in a buffered landscape or a more exposed one.",
+            "Why it matters to BL Turner": "It affects visual screening, heat, and site fit with neighbours.",
+            "What BL Turner should do": "Use buffers, screening, and planting where the site is visually or climatically exposed.",
+        },
+        {
+            "TNFD lens": "Risk",
+            "Indicator": "Terrain slope",
+            "Current reading": fmt_num(slope, 1, "°"),
+            "Status": status_from_range(slope, favourable_max=3, watch_max=6, warning_max=10),
+            "What it means": f"Average slope is {fmt_num(slope, 1, '°')}, which is a practical civil-works and runoff signal rather than a cosmetic number.",
+            "Why it matters to BL Turner": f"It matters most at the {stage.lower()} stage while the layout can still change.",
+            "What BL Turner should do": "Check cut-and-fill, vehicle movement, and runoff direction before detailed engineering.",
+        },
+    ]
+    return pd.DataFrame(rows)
+
+
+def prepare_actions(metrics: Dict[str, Any], tonnes: int, stage: str) -> List[str]:
+    rain = safe_float(metrics.get("rain_anom_pct"))
+    flood = safe_float(metrics.get("flood_risk"))
+    heat = safe_float(metrics.get("lst_mean"))
+    access = safe_float(metrics.get("travel_time_to_market"))
+    water = safe_float(metrics.get("water_context_signal_pct") or metrics.get("water_occ"))
+    actions: List[str] = []
+
+    actions.append(
+        f"Use this as a {stage.lower()} decision tool: it is most valuable now, before site layout, drainage, traffic flow, and buffer design become expensive to change."
+    )
+    actions.append(
+        f"Build the feedstock model around the entered capacity of {tonnes} tonnes/day. The site view and the supplier view should be treated as one operating system, not two separate workstreams."
+    )
+    if rain is not None and rain < -10:
+        actions.append(f"Because rainfall is {rain:.1f}% below baseline, treat storage, washdown efficiency, and water reuse as core design issues.")
+    if flood is not None and flood >= 0.2:
+        actions.append(f"Because flood depth is {flood:.2f} m, review levels, stormwater routing, bunding, and vehicle access in wet periods.")
+    if heat is not None and heat >= 30:
+        actions.append(f"Because heat is around {heat:.1f} °C, include shading, odour-aware layout, and worker-safety controls early in the design.")
+    if access is not None and access > 120:
+        actions.append(f"Because access time is about {access:.0f} minutes, build route efficiency and supplier contracting into the financial case before scaling volumes.")
+    if water is not None and water < 5:
+        actions.append(f"Because the broader water-context signal is only {water:.1f}, do not assume local conditions will naturally support a water-intensive operating model.")
+    actions.append("Translate the strongest signals into lender, grant, and investor language: landfill diversion, operational continuity, avoided disruption, and fit-for-site design.")
+    return actions[:6]
+
+
+def business_value_table(metrics: Dict[str, Any], tonnes: int) -> pd.DataFrame:
+    annual_tonnes = tonnes * 330
+    rain = safe_float(metrics.get("rain_anom_pct"))
+    flood = safe_float(metrics.get("flood_risk"))
+    access = safe_float(metrics.get("travel_time_to_market"))
+    rows = [
+        ["Waste diverted from landfill", "Tonnes/year", f"{annual_tonnes:,.0f}", "Direct scale indicator based on entered daily capacity × 330 operating days."],
+        ["Water stress signal", "Rainfall anomaly", fmt_num(rain, 1, "%"), "Helps explain whether water planning may raise operating cost or resilience needs."],
+        ["Flood-disruption signal", "Flood depth proxy", fmt_num(flood, 2, " m"), "Helps show whether access, storage, and infrastructure may require extra spend."],
+        ["Transport effort", "Travel time", fmt_num(access, 0, " min"), "Longer trips can reduce margins and make feedstock continuity harder."],
+        ["Biogas and fertiliser outputs", "Commercial outputs", "Project-specific", "Value depends on technology conversion rates and market offtake, not satellite data alone."],
+        ["Community-fit value", "Risk reduction", "Design-dependent", "Better drainage, buffers, and odour controls can prevent delay, complaint, and reputational cost."],
     ]
     return pd.DataFrame(rows, columns=["Item", "Unit", "Current view", "Business meaning"])
 
@@ -367,32 +564,14 @@ def build_map(center: List[float], zoom: int, lat: Optional[float], lon: Optiona
         },
         edit_options={"edit": True, "remove": True},
     ).add_to(m)
-
     if existing_geojson:
-        folium.GeoJson(
-            existing_geojson,
-            style_function=lambda _: {"color": "#ff0000", "weight": 3, "fillOpacity": 0.05},
-        ).add_to(m)
-
+        folium.GeoJson(existing_geojson, style_function=lambda _: {"color": "#ff0000", "weight": 3, "fillOpacity": 0.05}).add_to(m)
     if lat is not None and lon is not None:
         folium.CircleMarker(
-            location=[lat, lon],
-            radius=8,
-            color=BRAND["primary"],
-            weight=2,
-            fill=True,
-            fill_color=BRAND["accent"],
-            fill_opacity=0.95,
-            tooltip="BL Turner site",
+            location=[lat, lon], radius=8, color=BRAND["primary"], weight=2,
+            fill=True, fill_color=BRAND["accent"], fill_opacity=0.95, tooltip="BL Turner site"
         ).add_to(m)
-        folium.Circle(
-            [lat, lon],
-            radius=float(buffer_m),
-            color="#ff0000",
-            weight=2,
-            fill=False,
-        ).add_to(m)
-
+        folium.Circle([lat, lon], radius=float(buffer_m), color="#ff0000", weight=2, fill=False).add_to(m)
     return m
 
 
@@ -439,9 +618,14 @@ def prep_year_df(df: pd.DataFrame) -> pd.DataFrame:
     return df.sort_values("year")
 
 
-# ----------------------------
-# App
-# ----------------------------
+def render_plot(df: pd.DataFrame, x: str, y: str, title: str, kind: str = "line") -> None:
+    if df.empty or x not in df.columns or y not in df.columns:
+        st.info(f"No data available for {title.lower()}.")
+        return
+    fig = px.bar(df, x=x, y=y, title=title) if kind == "bar" else px.line(df, x=x, y=y, title=title)
+    fig.update_layout(margin=dict(l=20, r=20, t=60, b=20))
+    st.plotly_chart(fig, use_container_width=True)
+
 
 init_state()
 if not st.session_state["authenticated"]:
@@ -485,50 +669,46 @@ with st.sidebar:
     hist_end = st.number_input("Historical end year", min_value=1984, max_value=LAST_FULL_YEAR, value=LAST_FULL_YEAR, step=1)
 
     st.markdown("### Business profile")
-    st.caption("These fields shape the story shown in the platform.")
     tonnes = st.number_input("Daily waste capacity (tonnes/day)", min_value=1, value=100, step=1)
     stage = st.selectbox("Business stage", ["Pre-development", "Pilot", "Construction", "Operational"], index=0)
     include_npc = st.checkbox("Include non-profit women’s empowerment angle", value=True)
     run_button = st.button("Run BL Turner assessment", use_container_width=True, type="primary")
 
-top1, top2 = st.columns([1.05, 1.15])
-
-with top1:
+left_top, right_top = st.columns([1.05, 1.15])
+with left_top:
     st.subheader("Business context")
     st.write(
         "This version is built for BL Turner’s planned organic waste-to-fertiliser and biogas project in KwaDukuza. "
-        "It translates environmental data into a simple operating story: whether the site, supply footprint, and surrounding landscape are stable enough to support the business."
+        "It is designed to speak in plain language, but every core statement should still come back to an environmental signal, a business dependency, or a real operating implication."
     )
     st.info(
-        "Designed for non-experts: plain language, TNFD-aligned thinking, and clear links to operational and financial decisions."
+        "Focus: site viability, feedstock continuity, water and flood context, heat and nuisance pressure, access, and what these mean for project readiness."
     )
-
-    dep = dependency_impact_view({})
     c1, c2 = st.columns(2)
     with c1:
         st.markdown("#### What the business depends on")
         for item in [
             "Reliable organic waste supply",
             "Water for operations and cleaning",
-            "A workable site with good access",
-            "Community acceptance and practical operating conditions",
+            "A workable site with stable drainage and access",
+            "Community fit and nuisance management",
         ]:
             st.write(f"- {item}")
     with c2:
         st.markdown("#### What the business can change")
         for item in [
-            "Less waste to landfill",
-            "Biogas and fertiliser creation",
-            "Potential cost savings and new revenue",
-            "Possible odour, traffic, or drainage pressure if poorly managed",
+            "Landfill diversion",
+            "Biogas and fertiliser production",
+            "Operating cost and resilience",
+            "Neighbour and partner confidence",
         ]:
             st.write(f"- {item}")
 
-with top2:
+with right_top:
     st.subheader("Site map")
     lat_val = safe_float(st.session_state["lat_input"])
     lon_val = safe_float(st.session_state["lon_input"])
-    m = build_map(
+    site_map = build_map(
         center=st.session_state["map_center"],
         zoom=st.session_state["map_zoom"],
         lat=lat_val,
@@ -536,7 +716,7 @@ with top2:
         buffer_m=float(st.session_state["buffer_input"]),
         existing_geojson=st.session_state["last_drawn_geojson"],
     )
-    map_data = st_folium(m, height=430, width=None, returned_objects=["all_drawings"])
+    map_data = st_folium(site_map, height=430, width=None, returned_objects=["all_drawings"])
     drawn_geojson = extract_drawn_geometry(map_data)
     if drawn_geojson:
         st.session_state["last_drawn_geojson"] = drawn_geojson
@@ -549,20 +729,17 @@ if run_button:
         st.session_state["lon_input"],
         float(st.session_state["buffer_input"]),
     )
-
     if geom is None:
         st.error("Please provide valid coordinates or draw a polygon.")
     else:
         with st.spinner("Running Earth Engine assessment..."):
             metrics = compute_metrics(geom, int(hist_start), int(hist_end), LAST_FULL_YEAR)
-
             ndvi_hist = prep_year_df(fc_to_df(landsat_annual_ndvi_collection(geom, max(int(hist_start), 1984), int(hist_end))))
             rain_hist = prep_year_df(fc_to_df(annual_rain_collection(geom, max(int(hist_start), 1984), int(hist_end))))
             lst_hist = prep_year_df(fc_to_df(annual_lst_collection(geom, max(int(hist_start), 2001), int(hist_end))))
             forest_hist = prep_year_df(fc_to_df(forest_loss_by_year_collection(geom, int(hist_start), int(hist_end))))
             water_hist = prep_year_df(fc_to_df(water_history_collection(geom, max(int(hist_start), 1984), int(hist_end))))
             landcover_df = fc_to_df(landcover_feature_collection(geom))
-
             images = {
                 "satellite": satellite_with_polygon(geom, LAST_FULL_YEAR),
                 "ndvi": ndvi_with_polygon(geom, LAST_FULL_YEAR),
@@ -573,9 +750,7 @@ if run_button:
                 "soil_condition": soil_condition_with_polygon(geom),
                 "heat_stress": heat_stress_with_polygon(geom, LAST_FULL_YEAR),
             }
-
             urls = {name: image_thumb_url(img, geom, dimensions=1600) for name, img in images.items()}
-
         st.session_state["results_payload"] = {
             "geom_payload": geom_payload,
             "metrics": metrics,
@@ -600,23 +775,26 @@ hist = st.session_state.get("historical_payload")
 
 if payload:
     metrics = payload["metrics"]
-    story = site_story(metrics)
-    dep_view = dependency_impact_view(metrics)
+    tonnes = payload["tonnes"]
+    stage = payload["stage"]
+    story = site_story(metrics, tonnes, stage)
+    dep_view = dependency_impact_view(metrics, tonnes)
+    matrix_df = tnfd_portfolio_matrix(metrics, tonnes, stage)
 
     st.markdown("---")
     st.subheader("1. Executive story")
     st.write(story["headline"])
 
-    a, b, c = st.columns(3)
-    with a:
+    col_a, col_b, col_c = st.columns(3)
+    with col_a:
         st.markdown("#### What looks positive")
         for item in story["strengths"]:
             st.write(f"- {item}")
-    with b:
+    with col_b:
         st.markdown("#### What needs attention")
         for item in story["pressures"]:
             st.write(f"- {item}")
-    with c:
+    with col_c:
         st.markdown("#### What to do next")
         for item in story["actions"]:
             st.write(f"- {item}")
@@ -624,16 +802,20 @@ if payload:
     st.subheader("2. Quick view")
     display_metric_cards([
         {"label": "Site area", "value": fmt_num(metrics.get("area_ha"), 1, " ha"), "subtext": "Assessment area"},
-        {"label": "Rainfall signal", "value": fmt_num(metrics.get("rain_anom_pct"), 1, "%"), "subtext": "Compared with long-term baseline"},
-        {"label": "Heat signal", "value": fmt_num(metrics.get("lst_mean"), 1, " °C"), "subtext": "Recent land-surface temperature"},
-        {"label": "Flood signal", "value": fmt_num(metrics.get("flood_risk"), 2, " m"), "subtext": "Flood-depth proxy"},
-        {"label": "Soil moisture", "value": fmt_num(metrics.get("soil_moisture"), 3), "subtext": "Near-surface wetness"},
-        {"label": "Travel access", "value": fmt_num(metrics.get("travel_time_to_market"), 0, " min"), "subtext": "Market and logistics context"},
-        {"label": "Water context", "value": fmt_num(metrics.get("water_occ"), 1), "subtext": "Visible surface-water occurrence"},
-        {"label": "Vegetation", "value": fmt_num(metrics.get("ndvi_current"), 3), "subtext": "Current vegetation condition"},
+        {"label": "Rainfall signal", "value": fmt_num(metrics.get("rain_anom_pct"), 1, "%"), "subtext": rainfall_status(safe_float(metrics.get("rain_anom_pct")))},
+        {"label": "Heat signal", "value": fmt_num(metrics.get("lst_mean"), 1, " °C"), "subtext": heat_status(safe_float(metrics.get("lst_mean")))},
+        {"label": "Flood signal", "value": fmt_num(metrics.get("flood_risk"), 2, " m"), "subtext": flood_status(safe_float(metrics.get("flood_risk")))},
+        {"label": "Soil moisture", "value": fmt_num(metrics.get("soil_moisture"), 3), "subtext": soil_moisture_status(safe_float(metrics.get("soil_moisture")))},
+        {"label": "Travel access", "value": fmt_num(metrics.get("travel_time_to_market"), 0, " min"), "subtext": access_status(safe_float(metrics.get("travel_time_to_market")))},
+        {"label": "Water context", "value": fmt_num(metrics.get("water_context_signal_pct") or metrics.get("water_occ"), 1), "subtext": "Landscape water signal"},
+        {"label": "Tree context", "value": fmt_num(metrics.get("tree_cover_context_pct") or metrics.get("tree_pct"), 1, "%"), "subtext": "Landscape buffer signal"},
     ])
 
-    st.subheader("3. TNFD-style dependency and impact view")
+    st.subheader("3. TNFD portfolio view")
+    st.caption("This is not one score. It is a portfolio of site signals translated into business meaning.")
+    st.dataframe(matrix_df, use_container_width=True, hide_index=True)
+
+    st.subheader("4. Dependencies and impacts")
     left, right = st.columns(2)
     with left:
         st.markdown("#### Dependencies")
@@ -641,72 +823,60 @@ if payload:
             with st.container(border=True):
                 st.markdown(f"**{row['name']}**")
                 st.write(row["story"])
-                st.caption(f"Watch: {row['what_to_watch']}")
+                st.caption(f"Watch: {row['watch']}")
     with right:
         st.markdown("#### Impacts")
         for row in dep_view["impacts"]:
             with st.container(border=True):
                 st.markdown(f"**{row['name']}**")
                 st.write(row["story"])
-                st.caption(f"Business link: {row['business_link']}")
+                st.caption(f"Business link: {row['link']}")
 
-    st.subheader("4. Units of nature and units of money")
-    st.dataframe(business_value_table(metrics), use_container_width=True, hide_index=True)
+    st.subheader("5. Units of nature and units of money")
+    st.dataframe(business_value_table(metrics, tonnes), use_container_width=True, hide_index=True)
+    st.caption("Only the waste-diversion line is calculated directly from the entered operating capacity. Other rows are decision signals or project-specific commercial lines that need engineering and market inputs.")
 
-    st.subheader("5. Visual evidence")
+    st.subheader("6. Visual evidence")
     img_cols = st.columns(4)
-    items = [
-        ("Satellite view", payload["urls"]["satellite"], "The red outline shows the assessed site."),
+    image_items = [
+        ("Satellite view", payload["urls"]["satellite"], "The red outline shows the assessed site boundary."),
         ("Vegetation", payload["urls"]["ndvi"], "Greener usually means stronger vegetation condition."),
-        ("Land cover", payload["urls"]["landcover"], "Shows current land-cover classes around the site."),
+        ("Land cover", payload["urls"]["landcover"], "Shows the current land-cover context around the site."),
         ("Flood risk", payload["urls"]["flood_risk"], "Darker blues indicate deeper flood exposure."),
         ("Heat stress", payload["urls"]["heat_stress"], "Warmer colours indicate hotter surfaces."),
-        ("Soil condition", payload["urls"]["soil_condition"], "Gives a simple soil-condition view."),
+        ("Soil condition", payload["urls"]["soil_condition"], "Simple view of surrounding soil-organic-carbon context."),
         ("Vegetation change", payload["urls"]["veg_change"], "Green suggests improvement; red suggests decline."),
-        ("Forest loss", payload["urls"]["forest_loss"], "Highlights detected forest-loss areas."),
+        ("Forest loss", payload["urls"]["forest_loss"], "Highlights detected forest-loss areas in the surrounding context."),
     ]
-    for idx, (title, url, caption) in enumerate(items):
+    for idx, (title, url, caption) in enumerate(image_items):
         with img_cols[idx % 4]:
             st.markdown(f"**{title}**")
             st.image(url)
             st.caption(caption)
 
-    st.subheader("6. Historical trends")
+    st.subheader("7. Historical trends")
     if hist:
-        c1, c2 = st.columns(2)
-        with c1:
-            if not hist["ndvi_hist"].empty:
-                st.plotly_chart(px.line(hist["ndvi_hist"], x="year", y="value", title="Historical vegetation (NDVI)"), use_container_width=True)
-            if not hist["lst_hist"].empty:
-                st.plotly_chart(px.line(hist["lst_hist"], x="year", y="value", title="Historical land-surface temperature"), use_container_width=True)
-            if not hist["water_hist"].empty:
-                st.plotly_chart(px.line(hist["water_hist"], x="year", y="value", title="Historical water presence"), use_container_width=True)
-        with c2:
-            if not hist["rain_hist"].empty:
-                st.plotly_chart(px.line(hist["rain_hist"], x="year", y="value", title="Historical rainfall"), use_container_width=True)
-            if not hist["forest_hist"].empty:
-                st.plotly_chart(px.bar(hist["forest_hist"], x="year", y="value", title="Historical forest loss"), use_container_width=True)
-            if not hist["landcover_df"].empty and "class_name" in hist["landcover_df"].columns and "area_ha" in hist["landcover_df"].columns:
-                st.plotly_chart(px.bar(hist["landcover_df"], x="class_name", y="area_ha", title="Current land-cover composition"), use_container_width=True)
+        p1, p2 = st.columns(2)
+        with p1:
+            render_plot(hist["ndvi_hist"], "year", "value", "Historical vegetation (NDVI)")
+            render_plot(hist["lst_hist"], "year", "value", "Historical land-surface temperature")
+            render_plot(hist["water_hist"], "year", "value", "Historical water presence")
+        with p2:
+            render_plot(hist["rain_hist"], "year", "value", "Historical rainfall")
+            render_plot(hist["forest_hist"], "year", "value", "Historical forest loss", kind="bar")
+            render_plot(hist["landcover_df"], "class_name", "area_ha", "Current land-cover composition", kind="bar")
 
-    st.subheader("7. Plain-language recommendation pack")
-    recommendations = [
-        "Use this as a pre-development decision tool before final site design is locked in.",
-        "Treat supplier mapping as seriously as site mapping. A strong waste stream is as important as a strong site.",
-        "Include water security, odour management, drainage, and transport layout in the early design stage.",
-        "Build a simple annual review version for TNFD-style reporting once the project moves from pre-development to operation.",
-    ]
+    st.subheader("8. Prepare")
+    for action in prepare_actions(metrics, tonnes, stage):
+        st.write(f"- {action}")
     if payload["include_npc"]:
-        recommendations.append("Show the women’s empowerment and community development story as part of the wider social value case, but keep it separate from the environmental screening logic.")
-    for rec in recommendations:
-        st.write(f"- {rec}")
+        st.info(
+            "The non-profit women’s empowerment angle can strengthen the wider partnership story, but it should sit alongside the environmental and operating case rather than replace it."
+        )
 
-    st.subheader("8. Suggested commercial model")
-    st.write("- Once-off pre-development screening")
-    st.write("- Annual TNFD-aligned monitoring and update")
-    st.write("- Investor, grant, or lender-ready summary pack")
-    st.write("- Optional supplier and waste-catchment expansion module")
-
+    st.subheader("9. Analysis notes")
+    if metrics.get("analysis_context_method"):
+        st.caption(str(metrics["analysis_context_method"]))
 else:
     st.markdown("---")
     st.info("Run the BL Turner assessment to generate the platform outputs.")
