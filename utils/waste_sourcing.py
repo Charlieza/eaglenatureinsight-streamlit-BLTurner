@@ -353,116 +353,156 @@ def seasonal_supply_profile() -> List[Dict[str, Any]]:
 
 def continuity_risk_assessment() -> List[Dict[str, str]]:
     """
-    Flag continuity-of-supply risks in plain language across the
-    feedstock portfolio.
+    Flag continuity-of-supply risks in a standard structure expected by app.py.
+
+    Standard output keys:
+      - level
+      - risk
+      - indicator
+      - meaning
+      - mitigation
     """
-    rows = []
-    # Concentration risk
+    rows: List[Dict[str, str]] = []
+
+    # Concentration risk by stream
     streams = stream_mix_summary()
     top = streams[0] if streams else None
     if top and top["share_pct"] > 40:
         rows.append({
+            "level": "Moderate",
             "risk": "Feedstock concentration risk",
-            "severity": "Moderate",
-            "finding": (
+            "indicator": f"{top['stream']} ({top['share_pct']:.0f}% of supply)",
+            "meaning": (
                 f"The '{top['stream']}' category accounts for about "
-                f"{top['share_pct']:.0f}% of the screening supply portfolio."
+                f"{top['share_pct']:.0f}% of the screening supply portfolio. "
+                "That means BL Turner could be too exposed to disruption in one stream."
             ),
             "mitigation": (
-                "Target each major stream to sit under 40% of total intake. "
-                "Expand contracts across at least 3 waste categories and "
-                "across both eThekwini and iLembe sources."
+                "Target each major stream to stay below about 40% of total intake. "
+                "Expand contracts across at least three waste categories and across "
+                "both eThekwini and iLembe sources."
             ),
         })
     else:
         rows.append({
+            "level": "Low",
             "risk": "Feedstock concentration risk",
-            "severity": "Low",
-            "finding": "No single waste stream dominates the screening portfolio.",
+            "indicator": "No dominant stream",
+            "meaning": (
+                "No single waste stream dominates the current screening portfolio."
+            ),
             "mitigation": (
                 "Maintain diversified sourcing across food waste, municipal organics, "
-                "abattoir and agricultural streams."
+                "abattoir waste, and agricultural streams."
             ),
         })
 
-    # Geographic risk (eThekwini distance)
-    ethekwini_tpd = sum(s["tons_per_day_est"] for s in WASTE_SOURCES if s["district"] == "eThekwini Metro")
+    # Geographic concentration / long-haul logistics
+    ethekwini_tpd = sum(
+        s["tons_per_day_est"]
+        for s in WASTE_SOURCES
+        if s["district"] == "eThekwini Metro"
+    )
     total_tpd = total_estimated_supply() or 1.0
-    if ethekwini_tpd / total_tpd > 0.55:
+    ethekwini_share = (ethekwini_tpd / total_tpd) * 100.0
+
+    if ethekwini_share > 55:
         rows.append({
+            "level": "Moderate",
             "risk": "Long-haul logistics risk",
-            "severity": "Moderate",
-            "finding": (
-                f"eThekwini-sourced streams are {ethekwini_tpd:.0f} tpd of about "
-                f"{total_tpd:.0f} tpd total (~{ethekwini_tpd/total_tpd*100:.0f}%), roughly 80–100 km from the plant."
+            "indicator": f"eThekwini share ~{ethekwini_share:.0f}%",
+            "meaning": (
+                f"eThekwini-sourced streams account for about {ethekwini_tpd:.0f} t/day "
+                f"out of {total_tpd:.0f} t/day total (~{ethekwini_share:.0f}%). "
+                "Because these sources are roughly 80–100 km from the plant, they increase "
+                "fuel cost, spoilage risk, and collection complexity."
             ),
             "mitigation": (
-                "Consider a refrigerated pre-sort / transfer station closer to Durban to "
-                "reduce fuel, spoilage and driver hours. Negotiate off-peak collection slots."
+                "Consider a refrigerated pre-sort or transfer station closer to Durban, "
+                "and negotiate off-peak collection slots to reduce transport pressure."
             ),
         })
     else:
         rows.append({
+            "level": "Low",
             "risk": "Long-haul logistics risk",
-            "severity": "Low",
-            "finding": f"eThekwini-sourced streams are a manageable share of total intake (~{ethekwini_tpd/total_tpd*100:.0f}%).",
-            "mitigation": "Continue to monitor diesel cost and driver hours per load.",
+            "indicator": f"eThekwini share ~{ethekwini_share:.0f}%",
+            "meaning": (
+                "eThekwini-sourced streams are a manageable share of the current supply mix."
+            ),
+            "mitigation": (
+                "Continue monitoring diesel cost, driver hours, and spoilage risk per load."
+            ),
         })
 
-    # Seasonal variability risk
+    # Seasonal variability
     profile = seasonal_supply_profile()
-    peak = max(p["supply_tpd"] for p in profile)
-    trough = min(p["supply_tpd"] for p in profile)
-    variation = (peak - trough) / (peak or 1.0) * 100.0
+    peak = max(p["supply_tpd"] for p in profile) if profile else 0.0
+    trough = min(p["supply_tpd"] for p in profile) if profile else 0.0
+    variation = ((peak - trough) / peak * 100.0) if peak else 0.0
+
     if variation > 20:
         rows.append({
+            "level": "Moderate",
             "risk": "Seasonal variability risk",
-            "severity": "Moderate",
-            "finding": (
+            "indicator": f"~{variation:.0f}% seasonal swing",
+            "meaning": (
                 f"Modelled feedstock supply varies by about {variation:.0f}% between the "
-                f"peak month (~{peak:.0f} tpd) and the trough month (~{trough:.0f} tpd)."
+                f"peak month (~{peak:.0f} t/day) and the trough month (~{trough:.0f} t/day). "
+                "That means BL Turner may struggle to keep the plant evenly loaded all year."
             ),
             "mitigation": (
-                "Size silage / buffer storage for at least 7–14 days of feedstock. "
-                "Use seasonal contracts with Western KZN agri sources to balance trough months."
+                "Size buffer storage for at least 7–14 days of feedstock and use seasonal "
+                "contracts with Western KZN agricultural sources to support trough months."
             ),
         })
     else:
         rows.append({
+            "level": "Low",
             "risk": "Seasonal variability risk",
-            "severity": "Low",
-            "finding": f"Modelled seasonal swing is modest ({variation:.0f}%).",
-            "mitigation": "Standard weekly operational planning is sufficient.",
-        })
-
-    # Municipal contract dependency
-    municipal_tpd = sum(s["tons_per_day_est"] for s in WASTE_SOURCES if "municipal" in s["stream"].lower() or "Municipal" in s["stream"])
-    if municipal_tpd > 0:
-        rows.append({
-            "risk": "Municipal contract dependency",
-            "severity": "Watch",
-            "finding": (
-                f"About {municipal_tpd:.0f} tpd of potential supply depends on municipal "
-                "organic-separation rollouts that may not yet be contracted."
+            "indicator": f"~{variation:.0f}% seasonal swing",
+            "meaning": (
+                "Modelled seasonal variation is relatively modest."
             ),
             "mitigation": (
-                "Secure MoUs with eThekwini and KwaDukuza waste departments early. Treat "
-                "municipal organics as a growth stream rather than day-1 baseload."
+                "Standard weekly operational planning should be sufficient, but continue tracking seasonality."
             ),
         })
 
-    # Abattoir biosecurity risk
+    # Municipal dependency
+    municipal_tpd = sum(
+        s["tons_per_day_est"]
+        for s in WASTE_SOURCES
+        if "municipal" in s["stream"].lower()
+    )
+
+    if municipal_tpd > 0:
+        rows.append({
+            "level": "Watch",
+            "risk": "Municipal contract dependency",
+            "indicator": f"~{municipal_tpd:.0f} t/day potential municipal supply",
+            "meaning": (
+                f"About {municipal_tpd:.0f} t/day of potential supply depends on municipal "
+                "organic-separation rollouts that may not yet be fully contracted."
+            ),
+            "mitigation": (
+                "Secure MoUs or formal agreements with eThekwini and KwaDukuza waste departments early. "
+                "Treat municipal organics as a growth stream rather than guaranteed day-one baseload."
+            ),
+        })
+
+    # Abattoir / biosecurity
     rows.append({
-        "risk": "Abattoir biosecurity & odour risk",
-        "severity": "Watch",
-        "finding": (
-            "Meat and blood waste requires cold-chain collection, pasteurisation / "
-            "thermophilic digestion, and odour-controlled reception to meet biosecurity "
-            "and community-relations expectations."
+        "level": "Watch",
+        "risk": "Abattoir biosecurity and odour risk",
+        "indicator": "Meat and blood waste stream",
+        "meaning": (
+            "Meat and blood waste needs cold-chain collection, hygienic pre-treatment, "
+            "and strong odour control to avoid spoilage, compliance issues, and community concerns."
         ),
         "mitigation": (
-            "Invest in a sealed cold-receiving bay, dedicated delivery slots, and a pre-treatment "
-            "hygienisation step aligned with South African animal by-products requirements."
+            "Invest in a sealed cold-receiving bay, dedicated delivery slots, and a hygienisation "
+            "or equivalent pre-treatment step aligned with animal by-product requirements."
         ),
     })
 
