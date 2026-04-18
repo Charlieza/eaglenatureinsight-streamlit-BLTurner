@@ -77,6 +77,8 @@ try:
         build_logistics_table,
         logistics_summary,
     )
+    from utils.capacity_risk_engine import build_capacity_risk_dashboard
+    from utils.digestate_demand_engine import build_digestate_dashboard
 except ModuleNotFoundError:
     from ee_helpers import (
         initialize_ee_from_secrets,
@@ -122,6 +124,8 @@ except ModuleNotFoundError:
         build_logistics_table,
         logistics_summary,
     )
+    from capacity_risk_engine import build_capacity_risk_dashboard
+    from digestate_demand_engine import build_digestate_dashboard
 
 
 st.set_page_config(page_title="EagleNatureInsight — BL Turner Group", layout="wide")
@@ -1354,6 +1358,16 @@ if run:
         )
         logistics_kpis = logistics_summary(logistics_rows)
 
+        capacity_risk = build_capacity_risk_dashboard(
+            headroom=headroom,
+            continuity_risks=continuity_risks,
+            logistics_kpis=logistics_kpis,
+        )
+        digestate_outputs = build_digestate_dashboard(
+            offtake_areas=DIGESTATE_OFFTAKE_AREAS,
+            total_supply_tpd=headroom.get("total_supply_tpd", 0.0),
+        )
+
         # Earth Engine imagery
         satellite_img = satellite_with_polygon(ee_geom, LAST_FULL_YEAR)
         ndvi_img = ndvi_with_polygon(ee_geom, LAST_FULL_YEAR)
@@ -1539,6 +1553,8 @@ if run:
             "headroom": headroom,
             "logistics_rows": logistics_rows,
             "logistics_kpis": logistics_kpis,
+            "capacity_risk": capacity_risk,
+            "digestate_outputs": digestate_outputs,
         }
 
     st.success("Assessment complete. Scroll down for the full LEAP view and download the PDF report.")
@@ -1589,12 +1605,16 @@ if results is not None:
     headroom = results["headroom"]
     logistics_rows = results["logistics_rows"]
     logistics_kpis = results["logistics_kpis"]
+    capacity_risk = results["capacity_risk"]
+    digestate_outputs = results["digestate_outputs"]
 
     leap_story = plain_language_leap_summary(preset, metrics, None)
 
-    tab1, tab_waste, tab2, tab3, tab4, tab5, tab_tnfd, tab_npi, tab6, tab7, tab8 = st.tabs([
+    tab1, tab_waste, tab_capacity, tab_digestate, tab2, tab3, tab4, tab5, tab_tnfd, tab_npi, tab6, tab7, tab8 = st.tabs([
         "LEAP · Locate",
         "🌱 Waste sourcing",
+        "⚠️ Capacity risk",
+        "♻️ Digestate demand",
         "LEAP · Evaluate",
         "LEAP · Assess",
         "LEAP · Prepare",
@@ -1804,6 +1824,120 @@ if results is not None:
                          width='stretch', hide_index=True)
 
         render_feedback_widget({"tab": "waste_sourcing", "preset": preset})
+
+
+    # ========================= Capacity risk =========================
+    with tab_capacity:
+        st.markdown("## ⚠️ Capacity risk dashboard")
+        st.write(
+            "This dashboard pulls together supply, seasonality, continuity, and logistics into one "
+            "plain-language operating view. It is not a single TNFD risk score. It is a decision view "
+            "for whether BL Turner can realistically keep the plant loaded at or near the 100 t/day target."
+        )
+
+        display_metric_cards([
+            {
+                "label": "Operating posture",
+                "value": str(capacity_risk.get("operating_posture", "Watch")),
+                "subtext": "Overall practical operating reading",
+                "raw": capacity_risk.get("operating_posture"),
+            },
+            {
+                "label": "Capacity buffer",
+                "value": fmt_num(capacity_risk.get("capacity_buffer_pct"), 1, "%"),
+                "subtext": "Headroom relative to nameplate",
+                "raw": capacity_risk.get("capacity_buffer_pct"),
+            },
+            {
+                "label": "Continuity pressure",
+                "value": str(capacity_risk.get("continuity_pressure_band", "Watch")),
+                "subtext": "Based on continuity risk count",
+                "raw": capacity_risk.get("continuity_pressure_band"),
+            },
+            {
+                "label": "Logistics pressure",
+                "value": str(capacity_risk.get("logistics_pressure_band", "Watch")),
+                "subtext": "Based on route distance and long-haul share",
+                "raw": capacity_risk.get("logistics_pressure_band"),
+            },
+        ], per_row=4)
+
+        risk_rows_df = pd.DataFrame(capacity_risk.get("risk_rows", []))
+        if not risk_rows_df.empty:
+            st.markdown("### Capacity-risk detail")
+            st.dataframe(_safe_dataframe_for_display(risk_rows_df), width='stretch', hide_index=True)
+
+        st.markdown("### What this means")
+        for line in capacity_risk.get("narrative", []):
+            st.write(f"- {line}")
+
+        st.markdown("### Priority actions")
+        for line in capacity_risk.get("priority_actions", []):
+            st.write(f"- {line}")
+
+    # ========================= Digestate demand =========================
+    with tab_digestate:
+        st.markdown("## ♻️ Digestate demand and offtake view")
+        st.write(
+            "This view completes the circular model: waste comes in, the plant produces biogas and digestate, "
+            "and the digestate needs a realistic market. These figures are screening estimates built from the "
+            "existing BL Turner assumptions, so they are appropriate for pilot planning and stakeholder engagement."
+        )
+
+        digestate_kpis = digestate_outputs.get("kpis", {})
+        display_metric_cards([
+            {
+                "label": "Indicative digestate output",
+                "value": fmt_num(digestate_kpis.get("annual_digestate_tons"), 0, " t/year"),
+                "subtext": "Estimated from total feedstock throughput",
+                "raw": digestate_kpis.get("annual_digestate_tons"),
+            },
+            {
+                "label": "Mapped demand capacity",
+                "value": fmt_num(digestate_kpis.get("annual_demand_capacity_tons"), 0, " t/year"),
+                "subtext": "Across current offtake zones",
+                "raw": digestate_kpis.get("annual_demand_capacity_tons"),
+            },
+            {
+                "label": "Demand coverage ratio",
+                "value": fmt_num(digestate_kpis.get("demand_coverage_ratio_pct"), 1, "%"),
+                "subtext": "How much of output could be absorbed",
+                "raw": digestate_kpis.get("demand_coverage_ratio_pct"),
+            },
+            {
+                "label": "Market posture",
+                "value": str(digestate_kpis.get("market_posture", "Watch")),
+                "subtext": "Plain-language market reading",
+                "raw": digestate_kpis.get("market_posture"),
+            },
+        ], per_row=4)
+
+        digestate_df = pd.DataFrame(digestate_outputs.get("rows", []))
+        if not digestate_df.empty:
+            st.markdown("### Offtake areas")
+            st.dataframe(_safe_dataframe_for_display(digestate_df), width='stretch', hide_index=True)
+
+            fig_digestate = px.bar(
+                digestate_df,
+                x="Offtake area",
+                y="Annual demand capacity (t/year)",
+                color="Priority",
+                title="Indicative digestate demand by offtake area",
+            )
+            fig_digestate.update_layout(
+                xaxis_title="Offtake area",
+                yaxis_title="Annual demand capacity (t/year)",
+                margin=dict(l=20, r=20, t=60, b=80),
+            )
+            st.plotly_chart(fig_digestate, width='stretch', key="digestate_demand_bar")
+
+        st.markdown("### What this means")
+        for line in digestate_outputs.get("narrative", []):
+            st.write(f"- {line}")
+
+        st.markdown("### Recommended next moves")
+        for line in digestate_outputs.get("actions", []):
+            st.write(f"- {line}")
 
     # ========================= LEAP · Evaluate =========================
     with tab2:
