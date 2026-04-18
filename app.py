@@ -1417,6 +1417,9 @@ if run:
         # Automated risk flags
         automated_flags = build_automated_risk_flags(metrics, continuity_risks)
 
+        # Map of Life insights
+        mol_insights = build_mol_insights(preset)
+
         # PDF chart payloads
         seasonal_png = seasonal_profile_to_png_bytes()
         chart_payloads = [
