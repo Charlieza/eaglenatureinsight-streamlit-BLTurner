@@ -1,0 +1,30 @@
+sheet_name,column_name,description
+site_species,Project Name,The name for a group of sites that form a broader region or landscape
+,Site Name,The name of the site polygon(s) for which metrics were calculated
+,Country,The primary country that the project is contained within
+,Taxonomic Group,"The taxonomic group to which the species belongs (birds, mammals, or reptiles)"
+,Scientific Name,The scientific name of the species (genus and species) expected to occur at the site
+,Vernacular Name,The common name of the species in English if available
+,IUCN Threat Codes,The threat status (or statuses if more than one assigned) according to the International Union for Conservation of Nature (IUCN): VU = Vulnerable; EN = Endangered; CR = Critically Endangered
+,Highest IUCN Threat Level,The threat status (or most critical status if more than one assigned) according to the International Union for Conservation of Nature (IUCN): VU = Vulnerable; EN = Endangered; CR = Critically Endangered
+site_shi_by_year,Project Name,The name for a group of sites that form a broader region or landscape
+,Site Name,The name of the site polygon(s) for which metrics were calculated
+,Year,The year of estimattion for Species Habitat Index (SHI) between 2001 and 2023
+,Species Habitat Index (SHI),"The project-level Species Habitat Index (SHI) ecompassing all birds, mammals, and reptiles expected to occur in a project area by year"
+,Species Habitat Index (SHI) - Birds,The project-level Species Habitat Index (SHI) ecompassing all bird species expected to occur in a project area by year
+,Species Habitat Index (SHI) - Mammals,The project-level Species Habitat Index (SHI) ecompassing all mammal species expected to occur in a project area by year
+,Species Habitat Index (SHI) - Reptiles,The project-level Species Habitat Index (SHI) ecompassing all reptile species expected to occur in a project area by year
+,Species Habitat Index (SHI) - Global,"The global Species Habitat Index (SHI) ecompassing all birds, mammals, and reptiles expected to occur in a project area by year"
+,"Species Habitat Index (SHI) - Birds, Global",The global Species Habitat Index (SHI) ecompassing all bird species expected to occur in a project area by year
+,"Species Habitat Index (SHI) - Mammals, Global",The global Species Habitat Index (SHI) ecompassing all mammal species expected to occur in a project area by year
+,"Species Habitat Index (SHI) - Reptiles, Global",The global Species Habitat Index (SHI) ecompassing all reptile species expected to occur in a project area by year
+site_shi_change,Project Name,The name for a group of sites that form a broader region or landscape
+,Site Name,The name of the site polygon(s) for which metrics were calculated
+,SHI Change Since 2001,"The change in project-level Species Habitat Index (SHI) ecompassing all birds, mammals, and reptiles expected to occur in a project area from 2001-2023"
+,SHI Change Since 2001 - Birds,The change in project-level Species Habitat Index (SHI) ecompassing all bird species expected to occur in a project area from 2001-2023
+,SHI Change Since 2001 - Mammals,The change in project-level Species Habitat Index (SHI) ecompassing all mammal species expected to occur in a project area from 2001-2023
+,SHI Change Since 2001 - Reptiles,The change in project-level Species Habitat Index (SHI) ecompassing all reptile species expected to occur in a project area from 2001-2023
+,SHI Change Since 2001 - Global,"The change in global Species Habitat Index (SHI) ecompassing all birds, mammals, and reptiles expected to occur in a project area from 2001-2023"
+,"SHI Change Since 2001 - Birds, Global",The change in global Species Habitat Index (SHI) ecompassing all bird species expected to occur in a project area from 2001-2023
+,"SHI Change Since 2001 - Mammals, Global",The change in global Species Habitat Index (SHI) ecompassing all mammal species expected to occur in a project area from 2001-2023
+,"SHI Change Since 2001 - Reptiles, Global",The change in global Species Habitat Index (SHI) ecompassing all reptile species expected to occur in a project area from 2001-2023
