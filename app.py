@@ -859,7 +859,7 @@ def waste_sources_to_dataframe():
             "Source": src.get("name"),
             "District": src.get("district"),
             "Municipality": src.get("municipality"),
-            "Stream": src.get("waste_stream"),
+            "Stream": src.get("stream"),
             "Est. tons/day": src.get("tons_per_day_est"),
             "Frequency": src.get("collection_frequency"),
             "Seasonality": src.get("seasonality"),
