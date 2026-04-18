@@ -145,7 +145,7 @@ PRESETS = [
 
 PRESET_TO_LOCATION = {
     "BL Turner Main Site (Portion 159, New Guelderland, KwaDukuza)": {
-        "lat": -29.3367, "lon": 31.2819, "buffer_m": 300, "zoom": 15,
+        "lat": -29.309186, "lon": 31.326527, "buffer_m": 300, "zoom": 15,
     },
     "Durban Fresh Produce Market (Clairwood) — feedstock source": {
         "lat": -29.9369, "lon": 30.9833, "buffer_m": 600, "zoom": 15,
@@ -422,10 +422,10 @@ def init_state():
         "preset_selector": "BL Turner Main Site (Portion 159, New Guelderland, KwaDukuza)",
         "active_preset": "BL Turner Main Site (Portion 159, New Guelderland, KwaDukuza)",
         "category_selector": "Organic Waste / Anaerobic Digestion / Biogas",
-        "lat_input": "-29.3367",
-        "lon_input": "31.2819",
+        "lat_input": "-29.309186",
+        "lon_input": "31.326527",
         "buffer_input": 300,
-        "map_center": [-29.3367, 31.2819],
+        "map_center": [-29.309186, 31.326527],
         "map_zoom": 11,
         "draw_mode": "Enter coordinates",
         "last_drawn_geojson": None,
@@ -525,8 +525,8 @@ def _safe_dataframe_for_display(df: pd.DataFrame) -> pd.DataFrame:
 # -----------------------------------------------------------------------------
 MAIN_SITE = {
     "name": "BL Turner Main Site (Portion 159, New Guelderland)",
-    "lat": -29.3367,
-    "lon": 31.2819,
+    "lat": -29.309186,
+    "lon": 31.326527,
     "description": "100 t/day anaerobic digestion facility, KwaDukuza",
 }
 
@@ -1245,9 +1245,9 @@ with mode_col2:
 if st.session_state["draw_mode"] == "Enter coordinates":
     lat_col, lon_col = st.columns(2)
     with lat_col:
-        st.text_input("Latitude", key="lat_input", placeholder="-29.3367")
+        st.text_input("Latitude", key="lat_input", placeholder="-29.309186")
     with lon_col:
-        st.text_input("Longitude", key="lon_input", placeholder="31.2819")
+        st.text_input("Longitude", key="lon_input", placeholder="31.326527")
 
 hist1, hist2 = st.columns(2)
 with hist1:
