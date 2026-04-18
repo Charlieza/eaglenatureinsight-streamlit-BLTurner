@@ -2081,7 +2081,7 @@ if results is not None:
             "Where a metric is a placeholder or needs data directly from BL Turner, it is "
             "labelled honestly rather than silently skipped (TNFD comply-or-explain approach)."
         )
-        tnfd_rows = build_tnfd_core_metrics_rows(metrics, None)
+        tnfd_rows = build_tnfd_core_metrics_rows(metrics)
         tnfd_df = pd.DataFrame(tnfd_rows).rename(columns={
             "metric_id": "Metric",
             "metric_name": "Indicator",
