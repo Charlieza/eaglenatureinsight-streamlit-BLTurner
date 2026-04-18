@@ -79,6 +79,7 @@ try:
     )
     from utils.capacity_risk_engine import build_capacity_risk_dashboard
     from utils.digestate_demand_engine import build_digestate_dashboard
+    from utils.mol_blturner import build_mol_insights, make_mol_shi_long_df, mol_shi_chart_bytes, mol_summary_chart_bytes, render_species_badges
 except ModuleNotFoundError:
     from ee_helpers import (
         initialize_ee_from_secrets,
@@ -126,6 +127,7 @@ except ModuleNotFoundError:
     )
     from capacity_risk_engine import build_capacity_risk_dashboard
     from digestate_demand_engine import build_digestate_dashboard
+    from mol_blturner import build_mol_insights, make_mol_shi_long_df, mol_shi_chart_bytes, mol_summary_chart_bytes, render_species_badges
 
 
 st.set_page_config(page_title="EagleNatureInsight — BL Turner Group", layout="wide")
@@ -1455,6 +1457,22 @@ if run:
             },
         ]
 
+        if mol_insights:
+            mol_summary_png = mol_summary_chart_bytes(mol_insights)
+            mol_trend_png = mol_shi_chart_bytes(mol_insights)
+            if mol_summary_png:
+                chart_payloads.append({
+                    "title": "Map of Life species and habitat summary",
+                    "description": "Map of Life summary for the BL Turner site or source zone, aligned to plant siting, habitat sensitivity, buffers and receiving-land decisions.",
+                    "bytes": mol_summary_png,
+                })
+            if mol_trend_png:
+                chart_payloads.append({
+                    "title": "Map of Life Species Habitat Index trend",
+                    "description": "Species Habitat Index trend for the matched BL Turner zone. Higher values generally indicate more suitable habitat for species over time.",
+                    "bytes": mol_trend_png,
+                })
+
         image_payloads = [
             {
                 "title": "Satellite image with polygon",
@@ -1515,6 +1533,7 @@ if run:
             stream_mix=stream_mix,
             district_mix=district_mix,
             supply_headroom_data=headroom,
+            mol_insights=mol_insights,
         )
 
         st.session_state["report_payload"] = {
@@ -1555,6 +1574,7 @@ if run:
             "logistics_kpis": logistics_kpis,
             "capacity_risk": capacity_risk,
             "digestate_outputs": digestate_outputs,
+            "mol_insights": mol_insights,
         }
 
     st.success("Assessment complete. Scroll down for the full LEAP view and download the PDF report.")
@@ -1607,10 +1627,11 @@ if results is not None:
     logistics_kpis = results["logistics_kpis"]
     capacity_risk = results["capacity_risk"]
     digestate_outputs = results["digestate_outputs"]
+    mol_insights = results.get("mol_insights")
 
-    leap_story = plain_language_leap_summary(preset, metrics)
+    leap_story = plain_language_leap_summary(preset, metrics, mol_insights)
 
-    tab1, tab_waste, tab_capacity, tab_digestate, tab2, tab3, tab4, tab5, tab_tnfd, tab_npi, tab6, tab7, tab8 = st.tabs([
+    tab1, tab_waste, tab_capacity, tab_digestate, tab2, tab3, tab4, tab5, tab_tnfd, tab_npi, tab_mol, tab6, tab7, tab8 = st.tabs([
         "LEAP · Locate",
         "🌱 Waste sourcing",
         "⚠️ Capacity risk",
@@ -1621,6 +1642,7 @@ if results is not None:
         "Risk flags",
         "TNFD core metrics",
         "Nature Positive (NPI)",
+        "Nature & species",
         "Maps",
         "Trends",
         "Data",
@@ -2081,7 +2103,7 @@ if results is not None:
             "Where a metric is a placeholder or needs data directly from BL Turner, it is "
             "labelled honestly rather than silently skipped (TNFD comply-or-explain approach)."
         )
-        tnfd_rows = build_tnfd_core_metrics_rows(metrics)
+        tnfd_rows = build_tnfd_core_metrics_rows(metrics, mol_insights)
         tnfd_df = pd.DataFrame(tnfd_rows).rename(columns={
             "metric_id": "Metric",
             "metric_name": "Indicator",
@@ -2102,7 +2124,7 @@ if results is not None:
             "state of nature around a business: ecosystem extent, condition, intactness and "
             "species extinction risk."
         )
-        npi_rows = build_npi_state_of_nature_rows(metrics)
+        npi_rows = build_npi_state_of_nature_rows(metrics, mol_insights)
         npi_df = pd.DataFrame(npi_rows).rename(columns={
             "indicator": "Indicator",
             "what_it_means": "What it means",
@@ -2113,6 +2135,91 @@ if results is not None:
                           if c in npi_df.columns]
         st.dataframe(_safe_dataframe_for_display(npi_df[available_cols]),
                      width='stretch', hide_index=True)
+
+
+    # ========================= Nature & species (Map of Life) =========================
+    with tab_mol:
+        st.markdown("## Nature & species")
+        if mol_insights:
+            st.write(
+                f"Map of Life adds species and habitat context for **{mol_insights['site_name']}**. "
+                "This helps BL Turner read the plant site, source corridors, or receiving landscapes not only "
+                "through land, water and climate signals, but also through species sensitivity and habitat quality."
+            )
+            st.caption(
+                "Expected species are modelled possibilities for the area around the site, not a field survey count. "
+                "Habitat scores are trend signals: higher values generally mean habitat is more suitable, while "
+                "changes over time show whether conditions appear to be strengthening or weakening."
+            )
+
+            display_metric_cards([dict(card, raw=card.get("value")) for card in mol_insights["cards"]], per_row=4)
+
+            st.markdown("### What this means for BL Turner")
+            for note in mol_insights["advisory_notes"]:
+                st.write(f"• {note}")
+
+            st.markdown("### Operational priorities")
+            for note in mol_insights["service_notes"]:
+                st.write(f"• {note}")
+
+            st.markdown("### Species groups represented")
+            group_cards = []
+            for group_name, key_prefix in [("Birds", "birds"), ("Mammals", "mammals"), ("Reptiles", "reptiles")]:
+                count = int(mol_insights["group_counts"].get(group_name, 0))
+                shi_val = mol_insights.get(f"{key_prefix}_shi")
+                change_val = mol_insights.get(f"{key_prefix}_change")
+                group_cards.append({
+                    "label": group_name,
+                    "value": str(count),
+                    "subtext": f"Latest habitat score {fmt_num(shi_val, 1)} · change since 2001 {fmt_num(change_val, 2)}",
+                    "raw": count,
+                })
+            display_metric_cards(group_cards, per_row=3)
+
+            st.markdown("### Threat profile")
+            st.caption(
+                "These categories show how close species are to disappearing. For BL Turner, they help show where "
+                "day-to-day siting, runoff, buffer and digestate-use decisions deserve extra care."
+            )
+            threat_cards = []
+            for item in mol_insights["threat_profile_details"]:
+                threat_cards.append({
+                    "label": f"{item['code']} · {item['name']}",
+                    "value": str(int(item["count"])),
+                    "subtext": f"{item['plain'].capitalize()}. {item['count']} expected species in this group.",
+                    "raw": item["count"],
+                })
+            display_metric_cards(threat_cards, per_row=2)
+
+            st.markdown("### What each threat level means for BL Turner")
+            for item in mol_insights["threat_profile_details"]:
+                st.write(
+                    f"• **{item['code']}: {item['name']}**: {item['count']} expected species. "
+                    f"This means the species {item['plain']}. {item['business']}"
+                )
+
+            st.markdown("### Priority species expected in this zone")
+            render_species_badges(st, mol_insights["top_species"])
+
+            mol_long_df = make_mol_shi_long_df(mol_insights)
+            if not mol_long_df.empty:
+                fig = px.line(
+                    mol_long_df,
+                    x="year",
+                    y="SHI",
+                    color="Series",
+                    title="Map of Life Species Habitat Index trend",
+                    labels={"year": "Year", "SHI": "Species Habitat Index"},
+                )
+                st.plotly_chart(fig, width='stretch', key="trend_mol_shi")
+
+            st.markdown("### TNFD LEAP view")
+            for point in mol_insights["tnfd_points"]:
+                st.write(f"• {point}")
+            if mol_insights.get("dictionary_note"):
+                st.caption(mol_insights["dictionary_note"])
+        else:
+            st.info("Map of Life species and habitat data is not available for this site selection.")
 
     # ========================= Maps =========================
     with tab6:
