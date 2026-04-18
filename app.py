@@ -2102,7 +2102,7 @@ if results is not None:
             "state of nature around a business: ecosystem extent, condition, intactness and "
             "species extinction risk."
         )
-        npi_rows = build_npi_state_of_nature_rows(metrics, None)
+        npi_rows = build_npi_state_of_nature_rows(metrics)
         npi_df = pd.DataFrame(npi_rows).rename(columns={
             "indicator": "Indicator",
             "what_it_means": "What it means",
