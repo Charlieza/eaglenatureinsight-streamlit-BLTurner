@@ -1608,7 +1608,7 @@ if results is not None:
     capacity_risk = results["capacity_risk"]
     digestate_outputs = results["digestate_outputs"]
 
-    leap_story = plain_language_leap_summary(preset, metrics, None)
+    leap_story = plain_language_leap_summary(preset, metrics)
 
     tab1, tab_waste, tab_capacity, tab_digestate, tab2, tab3, tab4, tab5, tab_tnfd, tab_npi, tab6, tab7, tab8 = st.tabs([
         "LEAP · Locate",
