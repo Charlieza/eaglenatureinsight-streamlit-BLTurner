@@ -1339,6 +1339,7 @@ if run:
         continuity_risks = continuity_risk_assessment()
         frequency_table = collection_frequency_table()
         headroom = supply_headroom()
+     
 
         # Earth Engine imagery
         satellite_img = satellite_with_polygon(ee_geom, LAST_FULL_YEAR)
