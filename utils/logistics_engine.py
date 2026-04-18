@@ -57,23 +57,22 @@ def estimate_weekly_trips(collection_frequency: str) -> float:
         return 6.0
     if "weekly" in text:
         return 1.0
-    if "2" in text and "week" in text:
-        return 2.0
-    if "3" in text and "week" in text:
-        return 3.0
-    if "4" in text and "week" in text:
-        return 4.0
-    if "5" in text and "week" in text:
-        return 5.0
-    if "6" in text and "week" in text:
-        return 6.0
-
     if "3–6" in text or "3-6" in text:
         return 4.5
-    if "2–4" in text or "2-4" in text:
-        return 3.0
     if "3–5" in text or "3-5" in text:
         return 4.0
+    if "2–4" in text or "2-4" in text:
+        return 3.0
+    if "6" in text and "week" in text:
+        return 6.0
+    if "5" in text and "week" in text:
+        return 5.0
+    if "4" in text and "week" in text:
+        return 4.0
+    if "3" in text and "week" in text:
+        return 3.0
+    if "2" in text and "week" in text:
+        return 2.0
 
     return 1.0
 
@@ -85,19 +84,10 @@ def estimate_transport_cost_per_ton(
     truck_cost_per_km: float = 18.0,
     load_factor: float = 0.85,
 ) -> float:
-    """
-    Simple screening estimate in ZAR per ton.
-
-    Assumptions:
-    - truck cost includes fuel, driver, tyre wear, maintenance
-    - load_factor reflects imperfect loading and routing inefficiency
-    """
     weekly_trips = estimate_weekly_trips(collection_frequency)
     round_trip_km = estimate_round_trip_km(distance_km)
     weekly_route_cost = round_trip_km * weekly_trips * truck_cost_per_km
-
     weekly_tons = max(tons_per_day * 7.0 * load_factor, 0.1)
-
     return round(weekly_route_cost / weekly_tons, 2)
 
 
@@ -109,8 +99,8 @@ def build_logistics_table(
     rows: List[Dict[str, Any]] = []
 
     for src in sources:
-        src_lat = float(src.get("lat", 0.0))
-        src_lon = float(src.get("lon", 0.0))
+        src_lat = float(src.get("lat", 0.0) or 0.0)
+        src_lon = float(src.get("lon", 0.0) or 0.0)
         tons = float(src.get("tons_per_day_est", 0.0) or 0.0)
         freq = src.get("collection_frequency", "")
 
@@ -173,9 +163,7 @@ def logistics_summary(logistics_rows: List[Dict[str, Any]]) -> Dict[str, float]:
         if r.get("Route class") in ["Long-haul", "Extended-haul"]
     )
 
-    high_risk_count = sum(
-        1 for r in logistics_rows if r.get("Route risk") == "High"
-    )
+    high_risk_count = sum(1 for r in logistics_rows if r.get("Route risk") == "High")
 
     return {
         "weighted_avg_distance_km": round(weighted_distance, 1),
