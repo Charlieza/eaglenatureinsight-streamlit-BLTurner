@@ -73,6 +73,10 @@ try:
         continuity_risk_assessment,
         collection_frequency_table,
     )
+    from utils.logistics_engine import (
+        build_logistics_table,
+        logistics_summary,
+    )
 except ModuleNotFoundError:
     from ee_helpers import (
         initialize_ee_from_secrets,
@@ -113,6 +117,10 @@ except ModuleNotFoundError:
         seasonal_supply_profile,
         continuity_risk_assessment,
         collection_frequency_table,
+    )
+    from logistics_engine import (
+        build_logistics_table,
+        logistics_summary,
     )
 
 
@@ -1339,7 +1347,12 @@ if run:
         continuity_risks = continuity_risk_assessment()
         frequency_table = collection_frequency_table()
         headroom = supply_headroom()
-     
+        logistics_rows = build_logistics_table(
+            sources=WASTE_SOURCES,
+            plant_lat=MAIN_SITE["lat"],
+            plant_lon=MAIN_SITE["lon"],
+        )
+        logistics_kpis = logistics_summary(logistics_rows)
 
         # Earth Engine imagery
         satellite_img = satellite_with_polygon(ee_geom, LAST_FULL_YEAR)
@@ -1524,6 +1537,8 @@ if run:
             "continuity_risks": continuity_risks,
             "frequency_table": frequency_table,
             "headroom": headroom,
+            "logistics_rows": logistics_rows,
+            "logistics_kpis": logistics_kpis,
         }
 
     st.success("Assessment complete. Scroll down for the full LEAP view and download the PDF report.")
@@ -1572,6 +1587,8 @@ if results is not None:
     continuity_risks = results["continuity_risks"]
     frequency_table = results["frequency_table"]
     headroom = results["headroom"]
+    logistics_rows = results["logistics_rows"]
+    logistics_kpis = results["logistics_kpis"]
 
     leap_story = plain_language_leap_summary(preset, metrics, None)
 
@@ -1669,6 +1686,34 @@ if results is not None:
      "raw": headroom.get("co2e_tons")},
 ], per_row=3)
 
+        st.markdown("### Logistics summary")
+        display_metric_cards([
+            {
+                "label": "Weighted route distance",
+                "value": fmt_num(logistics_kpis.get("weighted_avg_distance_km"), 1, " km"),
+                "subtext": "Average source distance weighted by tonnage",
+                "raw": logistics_kpis.get("weighted_avg_distance_km"),
+            },
+            {
+                "label": "Weighted transport cost",
+                "value": fmt_num(logistics_kpis.get("weighted_avg_cost_per_ton"), 2, " ZAR/t"),
+                "subtext": "Estimated route burden per ton",
+                "raw": logistics_kpis.get("weighted_avg_cost_per_ton"),
+            },
+            {
+                "label": "Long-haul share",
+                "value": fmt_num(logistics_kpis.get("long_haul_share_pct"), 1, "%"),
+                "subtext": "Share of supply from long-haul routes",
+                "raw": logistics_kpis.get("long_haul_share_pct"),
+            },
+            {
+                "label": "High-risk routes",
+                "value": str(logistics_kpis.get("high_risk_route_count", 0)),
+                "subtext": "Routes classed as high logistics risk",
+                "raw": logistics_kpis.get("high_risk_route_count"),
+            },
+        ], per_row=4)
+
         # Waste sources table
         st.markdown("### Waste source nodes")
         st.caption(
@@ -1681,6 +1726,39 @@ if results is not None:
         st.markdown("### Collection frequency by source")
         freq_df = pd.DataFrame(frequency_table)
         st.dataframe(_safe_dataframe_for_display(freq_df), width='stretch', hide_index=True)
+
+        st.markdown("### Route optimisation view")
+        st.caption(
+            "This table shows how far each source is from the KwaDukuza plant, "
+            "how demanding the route is, and the estimated transport cost per ton. "
+            "Use it to decide which streams should be baseload contracts and which "
+            "should be seasonal boosters only."
+        )
+        logistics_df = pd.DataFrame(logistics_rows)
+        st.dataframe(
+            _safe_dataframe_for_display(logistics_df),
+            width='stretch',
+            hide_index=True,
+        )
+
+        st.markdown("### What the logistics results mean")
+        st.write(
+            f"The weighted average source distance is about "
+            f"{fmt_num(logistics_kpis.get('weighted_avg_distance_km'), 1, ' km')}, "
+            f"and the weighted transport burden is about "
+            f"{fmt_num(logistics_kpis.get('weighted_avg_cost_per_ton'), 2, ' ZAR/t')}. "
+            f"About {fmt_num(logistics_kpis.get('long_haul_share_pct'), 1, '%')} of the "
+            f"current feedstock mix comes from long-haul routes. This means route cost "
+            f"and transport reliability are now becoming core operating issues, not just "
+            f"background logistics."
+        )
+        st.write(
+            "In practical terms, BL Turner should use nearby iLembe and KwaDukuza "
+            "streams as the most stable base-load supply where possible, while more "
+            "distant eThekwini and western KZN streams should be managed carefully "
+            "so they strengthen supply without making the plant too dependent on costly "
+            "or fragile routes."
+        )
 
         # Stream mix and district mix
         mix_col1, mix_col2 = st.columns(2)
