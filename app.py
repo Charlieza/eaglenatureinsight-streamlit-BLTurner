@@ -1,14 +1,36 @@
-from __future__ import annotations
+"""
+EagleNatureInsight™ — BL Turner Group
+========================================
 
+Streamlit app tailored for BL Turner Group (Pty) Ltd's 100 t/day organic
+waste-to-fertiliser and biogas operation at Portion 159 of New Guelderland,
+KwaDukuza (iLembe District, KZN).
+
+Developed by Space Eagle Enterprise (Pty) Ltd for the TNFD / Conservation X
+Labs / UNDP Nature Intelligence for Business Grand Challenge SME user
+testing phase (January - April 2026).
+
+Key differentiators from the Panuka agribusiness variant:
+  * Waste sourcing tab (feedstock nodes, frequency, tonnage, seasonality,
+    continuity-of-supply risk)
+  * AD-plant specific TNFD dependency pathways and monetary exposures
+  * Digestate off-take (KZN farmlands) visualised on the main map
+  * Landfill diversion / avoided methane as a positive environmental outcome
+"""
+
+from pathlib import Path
 from datetime import date
-from typing import Any, Dict, List, Optional, Tuple
+from io import BytesIO
 
-import folium
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
+import folium
 from folium.plugins import Draw
 from streamlit_folium import st_folium
+import matplotlib.pyplot as plt
+import requests
 
 try:
     from utils.ee_helpers import (
@@ -32,7 +54,26 @@ try:
         water_history_collection,
         landcover_feature_collection,
     )
-except Exception:
+    from utils.scoring import build_risk_and_recommendations
+    from utils.pdf_report import build_pdf_report
+    from utils.tnfd_alignment import (
+        build_tnfd_core_metrics_rows,
+        build_npi_state_of_nature_rows,
+        plain_language_leap_summary,
+    )
+    from utils.feedback import render_feedback_widget, render_feedback_admin
+    from utils.waste_sourcing import (
+        WASTE_SOURCES,
+        DIGESTATE_OFFTAKE_AREAS,
+        total_estimated_supply,
+        supply_headroom,
+        stream_mix_summary,
+        district_mix_summary,
+        seasonal_supply_profile,
+        continuity_risk_assessment,
+        collection_frequency_table,
+    )
+except ModuleNotFoundError:
     from ee_helpers import (
         initialize_ee_from_secrets,
         geojson_to_ee_geometry,
@@ -54,496 +95,445 @@ except Exception:
         water_history_collection,
         landcover_feature_collection,
     )
+    from scoring import build_risk_and_recommendations
+    from pdf_report import build_pdf_report
+    from tnfd_alignment import (
+        build_tnfd_core_metrics_rows,
+        build_npi_state_of_nature_rows,
+        plain_language_leap_summary,
+    )
+    from feedback import render_feedback_widget, render_feedback_admin
+    from waste_sourcing import (
+        WASTE_SOURCES,
+        DIGESTATE_OFFTAKE_AREAS,
+        total_estimated_supply,
+        supply_headroom,
+        stream_mix_summary,
+        district_mix_summary,
+        seasonal_supply_profile,
+        continuity_risk_assessment,
+        collection_frequency_table,
+    )
 
 
-st.set_page_config(page_title="EagleNatureInsight | BL Turner", layout="wide")
+st.set_page_config(page_title="EagleNatureInsight — BL Turner Group", layout="wide")
 
-APP_TITLE = "EagleNatureInsight | BL Turner Nature Intelligence"
-APP_SUBTITLE = "TNFD-aligned circular economy screening platform"
+APP_TITLE = "EagleNatureInsight™ — BL Turner Group"
+APP_SUBTITLE = "Nature intelligence for organic waste, biogas and fertiliser operations"
 APP_TAGLINE = "Locate • Evaluate • Assess • Prepare"
 
 CURRENT_YEAR = date.today().year
 LAST_FULL_YEAR = CURRENT_YEAR - 1
 
-BRAND = {
-    "primary": "#163d63",
-    "accent": "#1f8f5f",
-    "warn": "#d9911a",
-    "danger": "#c0392b",
-    "muted": "#6b7280",
-    "bg": "#f6f8fb",
-    "card": "#ffffff",
-    "border": "#e5e7eb",
-    "text": "#111827",
-    "subtext": "#4b5563",
-    "soft": "#eef2f7",
+LOGO_PATH = Path("assets/logo.png")
+
+# -----------------------------------------------------------------------------
+# BL Turner site presets
+# -----------------------------------------------------------------------------
+# Main site coordinates: Portion 159 of New Guelderland, KwaDukuza.
+# Bronwen provided the address but not exact corner coordinates.
+# Using a representative centroid for KwaDukuza / New Guelderland area;
+# user can draw the exact polygon on the map to refine.
+
+PRESETS = [
+    "Custom site",
+    "BL Turner Main Site (Portion 159, New Guelderland, KwaDukuza)",
+    "Durban Fresh Produce Market (Clairwood) — feedstock source",
+    "Pietermaritzburg Abattoir Cluster — feedstock source",
+    "eThekwini Kerbside Organics Collection Zone — feedstock source",
+]
+
+PRESET_TO_LOCATION = {
+    "BL Turner Main Site (Portion 159, New Guelderland, KwaDukuza)": {
+        "lat": -29.3367, "lon": 31.2819, "buffer_m": 300, "zoom": 15,
+    },
+    "Durban Fresh Produce Market (Clairwood) — feedstock source": {
+        "lat": -29.9369, "lon": 30.9833, "buffer_m": 600, "zoom": 15,
+    },
+    "Pietermaritzburg Abattoir Cluster — feedstock source": {
+        "lat": -29.6166, "lon": 30.3927, "buffer_m": 800, "zoom": 14,
+    },
+    "eThekwini Kerbside Organics Collection Zone — feedstock source": {
+        "lat": -29.8587, "lon": 31.0218, "buffer_m": 2000, "zoom": 12,
+    },
 }
 
-BL_TURNER_SITE = {
-    "name": "BL Turner | KwaDukuza organic waste project",
-    "lat": -29.2675,
-    "lon": 31.2860,
-    "buffer_m": 900,
-    "zoom": 12,
-    "site_area_m2": 15000,
-    "municipality": "KwaDukuza",
-    "district_context": "iLembe District, KZN",
-    "process": "Organic food waste processed in an anaerobic digestion facility producing fertiliser and biogas energy.",
-    "waste_streams": [
-        "Food waste from restaurants and commercial kitchens",
-        "Expired food from distribution centres",
-        "Agricultural waste where available",
-        "Abattoir waste including meat and blood",
-    ],
-    "supply_areas": ["eThekwini Municipality", "iLembe District"],
-    "fertiliser_destination": "KZN farmlands and outer-lying areas",
-    "business_stage": "Pre-development",
-    "land_context": "Privately owned land close to landfill with intent to divert waste from landfill",
+PRESET_TO_CATEGORY = {
+    "BL Turner Main Site (Portion 159, New Guelderland, KwaDukuza)": "Organic Waste / Anaerobic Digestion / Biogas",
+    "Durban Fresh Produce Market (Clairwood) — feedstock source": "Organic Waste / Anaerobic Digestion / Biogas",
+    "Pietermaritzburg Abattoir Cluster — feedstock source": "Organic Waste / Anaerobic Digestion / Biogas",
+    "eThekwini Kerbside Organics Collection Zone — feedstock source": "Organic Waste / Anaerobic Digestion / Biogas",
 }
 
-CATEGORY = "Circular Economy / Organic Waste Processing"
+CATEGORIES = [
+    "Organic Waste / Anaerobic Digestion / Biogas",
+]
 
 
-def init_state() -> None:
-    defaults = {
-        "authenticated": False,
-        "username": "",
-        "auth_error": "",
-        "draw_mode": "Enter coordinates",
-        "lat_input": str(BL_TURNER_SITE["lat"]),
-        "lon_input": str(BL_TURNER_SITE["lon"]),
-        "buffer_input": BL_TURNER_SITE["buffer_m"],
-        "map_center": [BL_TURNER_SITE["lat"], BL_TURNER_SITE["lon"]],
-        "map_zoom": BL_TURNER_SITE["zoom"],
-        "last_drawn_geojson": None,
-        "results_payload": None,
-        "historical_payload": None,
+# -----------------------------------------------------------------------------
+# Authentication
+# -----------------------------------------------------------------------------
+DEFAULT_USERNAME = "admin-blturner"
+DEFAULT_PASSWORD = "BLTurnerPilot2026!"
+
+
+def get_demo_credentials():
+    creds = st.secrets.get("app_auth", {}) if hasattr(st, "secrets") else {}
+    return {
+        "username": creds.get("username", DEFAULT_USERNAME),
+        "password": creds.get("password", DEFAULT_PASSWORD),
     }
-    for key, value in defaults.items():
+
+
+def init_auth_state():
+    for key, value in {
+        "authenticated": False,
+        "login_error": "",
+    }.items():
         if key not in st.session_state:
             st.session_state[key] = value
 
 
-def check_login(username: str, password: str) -> bool:
-    try:
-        creds = st.secrets.get("auth", {})
-    except Exception:
-        creds = {}
-    configured_user = creds.get("username", "admin")
-    configured_pass = creds.get("password", "spaceeagle-demo")
-    return username == configured_user and password == configured_pass
+def login_gate():
+    creds = get_demo_credentials()
 
-
-def login_gate() -> None:
     st.markdown(
-        f"""
-        <div style="padding:28px;border:1px solid {BRAND['border']};border-radius:24px;background:{BRAND['card']};max-width:480px;margin:50px auto;box-shadow:0 10px 25px rgba(17,24,39,0.08);">
-            <div style="font-size:28px;font-weight:800;color:{BRAND['primary']};margin-bottom:8px;">BL Turner Platform Login</div>
-            <div style="font-size:14px;color:{BRAND['subtext']};margin-bottom:18px;">
-                Secure access for the BL Turner circular-economy pilot.
-            </div>
+        """
+        <style>
+        .block-container {
+            max-width: 1320px;
+            padding-top: 0.6rem !important;
+            padding-bottom: 0.8rem !important;
+        }
+        header[data-testid="stHeader"] {
+            background: transparent !important;
+            height: 0 !important;
+        }
+        [data-testid="stAppViewContainer"] {
+            background:
+                radial-gradient(circle at 12% 10%, rgba(96,165,250,0.10), transparent 24%),
+                radial-gradient(circle at 88% 12%, rgba(34,197,94,0.07), transparent 18%),
+                linear-gradient(180deg, #f8fbff 0%, #f2f7fb 100%);
+        }
+        div[data-testid="stVerticalBlock"] > div:empty,
+        div[data-testid="stHorizontalBlock"] > div:empty,
+        [data-testid="stMarkdownContainer"]:empty {
+            display: none !important;
+            height: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+        .login-hero { padding: 0.4rem 0.4rem 0.2rem 0.2rem; color: #0f172a; }
+        .login-brand-chip {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 8px 14px; border-radius: 999px;
+            background: rgba(255,255,255,0.82);
+            border: 1px solid rgba(148,163,184,0.24);
+            font-size: 0.79rem; letter-spacing: 0.04em;
+            text-transform: uppercase; color: #33506b;
+            margin-bottom: 18px; backdrop-filter: blur(10px);
+        }
+        .login-title {
+            font-size: 3.1rem; line-height: 0.98;
+            font-weight: 800; letter-spacing: -0.03em;
+            margin: 0 0 16px 0; max-width: 640px; color: #0b1f33;
+        }
+        .login-subtitle {
+            max-width: 580px; font-size: 1.03rem; line-height: 1.62;
+            color: #40576d; margin-bottom: 22px;
+        }
+        .login-feature-grid {
+            display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px; max-width: 620px; margin-top: 10px;
+        }
+        .login-feature {
+            background: rgba(255,255,255,0.66);
+            border: 1px solid rgba(148,163,184,0.18);
+            border-radius: 20px; padding: 16px 18px;
+            box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+            backdrop-filter: blur(10px);
+        }
+        .login-feature-kicker {
+            font-size: 0.74rem; text-transform: uppercase;
+            letter-spacing: 0.08em; color: #1d4ed8; margin-bottom: 6px;
+        }
+        .login-feature-title { font-size: 1rem; font-weight: 700; color: #0f172a; margin: 0 0 4px 0; }
+        .login-feature-copy { font-size: 0.88rem; line-height: 1.45; color: #4b6175; }
+        .login-panel {
+            margin-top: 0.15rem; border-radius: 28px;
+            padding: 26px 24px 20px 24px;
+            background: rgba(255,255,255,0.90);
+            border: 1px solid rgba(148,163,184,0.20);
+            box-shadow: 0 22px 50px rgba(15, 23, 42, 0.08);
+            backdrop-filter: blur(18px);
+        }
+        .login-panel-kicker {
+            font-size: 0.76rem; text-transform: uppercase;
+            letter-spacing: 0.08em; color: #64748b; margin-bottom: 6px;
+        }
+        .login-panel-title { font-size: 1.6rem; line-height: 1.08; font-weight: 800; color: #0f172a; margin: 0; }
+        .login-panel-copy { color: #475569; font-size: 0.95rem; line-height: 1.52; margin: 10px 0 14px 0; }
+        .login-footer {
+            margin-top: 14px; padding-top: 14px;
+            border-top: 1px solid #e2e8f0;
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 14px; color: #64748b; font-size: 0.82rem;
+        }
+        div[data-testid="stForm"] {
+            border: none !important; padding: 0 !important;
+            background: transparent !important; box-shadow: none !important;
+        }
+        .login-panel .stTextInput label {
+            font-size: 0.84rem !important; font-weight: 600 !important; color: #334155 !important;
+        }
+        .login-panel input {
+            border-radius: 14px !important;
+            border: 1px solid #dbe3ee !important;
+            background: rgba(248,250,252,0.94) !important;
+            min-height: 48px !important;
+        }
+        .login-panel input:focus {
+            border-color: #1d4ed8 !important;
+            box-shadow: 0 0 0 1px rgba(29,78,216,0.18) !important;
+        }
+        .login-panel .stButton > button,
+        .login-panel button[kind="primaryFormSubmit"] {
+            width: 100% !important; border-radius: 14px !important; min-height: 50px !important;
+            background: linear-gradient(135deg, #0d2f4d 0%, #103c63 55%, #1f5d8c 100%) !important;
+            color: white !important; border: none !important;
+            box-shadow: 0 18px 30px rgba(16,60,99,0.18) !important; font-weight: 700 !important;
+        }
+        .login-panel .stAlert { margin-top: 12px; border-radius: 14px !important; }
+        @media (max-width: 980px) {
+            .login-title { font-size: 2.35rem; max-width: none; }
+            .login-feature-grid { grid-template-columns: 1fr; max-width: none; }
+            .login-panel { margin-top: 0.75rem; }
+        }
+        </style>
         """,
         unsafe_allow_html=True,
     )
-    with st.form("login_form", clear_on_submit=False):
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
-        submitted = st.form_submit_button("Sign in", use_container_width=True)
-        if submitted:
-            if check_login(username.strip(), password):
-                st.session_state["authenticated"] = True
-                st.session_state["username"] = username.strip()
-                st.session_state["auth_error"] = ""
-                st.rerun()
-            else:
-                st.session_state["auth_error"] = "Incorrect username or password."
-    if st.session_state.get("auth_error"):
-        st.error(st.session_state["auth_error"])
-    st.caption("Tip: set auth.username and auth.password in Streamlit secrets for production.")
-    st.stop()
+
+    left, right = st.columns([1.45, 0.95], gap="large")
+
+    with left:
+        st.markdown('<div class="login-hero">', unsafe_allow_html=True)
+        if LOGO_PATH.exists():
+            st.image(str(LOGO_PATH), width=132)
+        st.markdown(
+            """
+            <div class="login-brand-chip">EagleNatureInsight · BL Turner Group Pilot</div>
+            <h1 class="login-title">Nature intelligence for organic waste, biogas and fertiliser.</h1>
+            <div class="login-subtitle">
+                A TNFD-aligned LEAP workspace for BL Turner Group's 100 t/day anaerobic digestion
+                facility in KwaDukuza. Waste sourcing across eThekwini, iLembe, uMgungundlovu
+                and Western KZN — with site environmental screening and funder-ready outputs.
+            </div>
+            <div class="login-feature-grid">
+                <div class="login-feature">
+                    <div class="login-feature-kicker">Locate</div>
+                    <div class="login-feature-title">Main site and feedstock sources on one map</div>
+                    <div class="login-feature-copy">See the KwaDukuza plant plus every waste source node and digestate off-take area.</div>
+                </div>
+                <div class="login-feature">
+                    <div class="login-feature-kicker">Evaluate</div>
+                    <div class="login-feature-title">Waste frequency, tonnage, seasonality</div>
+                    <div class="login-feature-copy">Understand supply headroom against the 100 t/day nameplate, and where it comes from.</div>
+                </div>
+                <div class="login-feature">
+                    <div class="login-feature-kicker">Assess</div>
+                    <div class="login-feature-title">Continuity-of-supply risk</div>
+                    <div class="login-feature-copy">Concentration, logistics, contracts, seasonality, biosecurity — spelt out plainly.</div>
+                </div>
+                <div class="login-feature">
+                    <div class="login-feature-kicker">Prepare</div>
+                    <div class="login-feature-title">TNFD + NPI + landfill diversion</div>
+                    <div class="login-feature-copy">Disclosure-ready indicators plus avoided-methane positioning for funders.</div>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with right:
+        st.markdown('<div class="login-panel">', unsafe_allow_html=True)
+        st.markdown(
+            """
+            <div class="login-panel-top">
+                <div class="login-panel-kicker">Welcome</div>
+                <h2 class="login-panel-title">Sign in to continue</h2>
+            </div>
+            <div class="login-panel-copy">
+                Enter your BL Turner pilot access credentials to open the platform.
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        with st.form("login_form", clear_on_submit=False):
+            username = st.text_input("Username", placeholder="Enter username")
+            password = st.text_input("Password", type="password", placeholder="Enter password")
+            submitted = st.form_submit_button("Access platform", use_container_width=True)
+            if submitted:
+                if username == creds["username"] and password == creds["password"]:
+                    st.session_state["authenticated"] = True
+                    st.session_state["login_error"] = ""
+                    st.rerun()
+                else:
+                    st.session_state["login_error"] = "Incorrect username or password."
+        if st.session_state.get("login_error"):
+            st.error(st.session_state["login_error"])
+        st.markdown(
+            """
+            <div class="login-footer">
+                <span>BL Turner pilot workspace</span>
+                <span>Secure login</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
 
 
-def has_data(value: Any) -> bool:
-    if value is None or value == "":
+def logout_action():
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
+    st.session_state["authenticated"] = False
+    st.rerun()
+
+
+def reset_selection():
+    keep_keys = {"authenticated"}
+    auth_value = st.session_state.get("authenticated", False)
+    for key in list(st.session_state.keys()):
+        if key not in keep_keys:
+            del st.session_state[key]
+    st.session_state["authenticated"] = auth_value
+    st.session_state["preset_selector"] = "Custom site"
+    st.session_state["active_preset"] = "Custom site"
+    st.rerun()
+
+
+# -----------------------------------------------------------------------------
+# Session state init
+# -----------------------------------------------------------------------------
+def init_state():
+    defaults = {
+        "preset_selector": "BL Turner Main Site (Portion 159, New Guelderland, KwaDukuza)",
+        "active_preset": "BL Turner Main Site (Portion 159, New Guelderland, KwaDukuza)",
+        "category_selector": "Organic Waste / Anaerobic Digestion / Biogas",
+        "lat_input": "-29.3367",
+        "lon_input": "31.2819",
+        "buffer_input": 300,
+        "map_center": [-29.3367, 31.2819],
+        "map_zoom": 11,
+        "draw_mode": "Enter coordinates",
+        "last_drawn_geojson": None,
+        "report_payload": None,
+        "results_payload": None,
+        "map_nonce": 0,
+    }
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
+
+
+def apply_preset(preset: str):
+    st.session_state["active_preset"] = preset
+    if preset in PRESET_TO_CATEGORY:
+        st.session_state["category_selector"] = PRESET_TO_CATEGORY[preset]
+    if preset in PRESET_TO_LOCATION:
+        loc = PRESET_TO_LOCATION[preset]
+        st.session_state["lat_input"] = str(loc["lat"])
+        st.session_state["lon_input"] = str(loc["lon"])
+        st.session_state["buffer_input"] = int(loc["buffer_m"])
+        st.session_state["map_center"] = [loc["lat"], loc["lon"]]
+        st.session_state["map_zoom"] = loc["zoom"]
+
+
+def preset_changed():
+    preset = st.session_state["preset_selector"]
+    st.session_state["active_preset"] = preset
+    if preset in PRESET_TO_LOCATION:
+        apply_preset(preset)
+    st.rerun()
+
+
+# -----------------------------------------------------------------------------
+# UI helpers
+# -----------------------------------------------------------------------------
+def has_data(val):
+    if val is None:
         return False
     try:
-        return pd.notna(value)
+        return pd.notna(val)
     except Exception:
         return True
 
 
-def safe_float(value: Any) -> Optional[float]:
-    try:
-        if value is None or value == "":
-            return None
-        return float(value)
-    except Exception:
-        return None
-
-
-def fmt_num(value: Any, digits: int = 1, suffix: str = "") -> str:
-    number = safe_float(value)
-    if number is None:
+def fmt_num(val, digits=1, suffix=""):
+    if not has_data(val):
         return "Not available"
-    return f"{number:.{digits}f}{suffix}"
+    try:
+        return f"{float(val):.{digits}f}{suffix}"
+    except Exception:
+        return str(val)
 
 
-def yes_no(flag: bool) -> str:
-    return "Yes" if flag else "No"
-
-
-def metric_card(label: str, value: str, subtext: str = "") -> None:
+def metric_card(label: str, value: str, subtext: str = ""):
     st.markdown(
         f"""
-        <div style="padding:14px;border:1px solid {BRAND['border']};border-radius:18px;background:{BRAND['card']};height:126px;box-shadow:0 6px 18px rgba(17,24,39,0.06);">
-            <div style="font-size:12px;color:{BRAND['muted']};">{label}</div>
-            <div style="font-size:28px;font-weight:700;color:{BRAND['text']};margin-top:6px;">{value}</div>
-            <div style="font-size:11px;color:{BRAND['muted']};margin-top:5px;">{subtext}</div>
+        <div class="eni-card">
+            <div class="eni-card-label">{label}</div>
+            <div class="eni-card-value">{value}</div>
+            <div class="eni-card-subtext">{subtext}</div>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
 
-def display_metric_cards(items: List[Dict[str, str]], per_row: int = 4) -> None:
-    valid = [item for item in items if item.get("value") != "Not available"]
-    if not valid:
+def display_metric_cards(specs, per_row=3):
+    available = [spec for spec in specs if has_data(spec.get("raw"))]
+    if not available:
         return
-    for i in range(0, len(valid), per_row):
-        row = valid[i : i + per_row]
+    for start in range(0, len(available), per_row):
+        row = available[start:start + per_row]
         cols = st.columns(per_row)
-        for idx, item in enumerate(row):
+        for idx, spec in enumerate(row):
             with cols[idx]:
-                metric_card(item["label"], item["value"], item.get("subtext", ""))
+                metric_card(spec["label"], spec["value"], spec.get("subtext", ""))
 
 
-def status_from_range(value: Optional[float], favourable_max: Optional[float] = None, watch_max: Optional[float] = None,
-                      warning_max: Optional[float] = None, inverse: bool = False) -> str:
-    if value is None:
-        return "Not available"
-    if not inverse:
-        if favourable_max is not None and value <= favourable_max:
-            return "Favourable"
-        if watch_max is not None and value <= watch_max:
-            return "Watch"
-        if warning_max is not None and value <= warning_max:
-            return "Warning"
-        return "High concern"
-    if favourable_max is not None and value >= favourable_max:
-        return "Favourable"
-    if watch_max is not None and value >= watch_max:
-        return "Watch"
-    if warning_max is not None and value >= warning_max:
-        return "Warning"
-    return "High concern"
+def _safe_dataframe_for_display(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None:
+        return pd.DataFrame()
+    try:
+        safe_df = df.copy()
+        for col in safe_df.columns:
+            safe_df[col] = safe_df[col].apply(lambda x: "" if x is None else str(x))
+        return safe_df
+    except Exception:
+        try:
+            return pd.DataFrame(df).astype(str)
+        except Exception:
+            return pd.DataFrame()
 
 
-def rainfall_status(rain: Optional[float]) -> str:
-    if rain is None:
-        return "Not available"
-    if rain > -5:
-        return "Favourable"
-    if rain > -10:
-        return "Watch"
-    if rain > -20:
-        return "Warning"
-    return "High concern"
+# -----------------------------------------------------------------------------
+# Map building
+# -----------------------------------------------------------------------------
+MAIN_SITE = {
+    "name": "BL Turner Main Site (Portion 159, New Guelderland)",
+    "lat": -29.3367,
+    "lon": 31.2819,
+    "description": "100 t/day anaerobic digestion facility, KwaDukuza",
+}
 
 
-def ndvi_status(ndvi: Optional[float]) -> str:
-    return status_from_range(ndvi, favourable_max=0.50, watch_max=0.35, warning_max=0.20, inverse=True)
-
-
-def heat_status(lst: Optional[float]) -> str:
-    return status_from_range(lst, favourable_max=28, watch_max=30, warning_max=33)
-
-
-def flood_status(flood: Optional[float]) -> str:
-    return status_from_range(flood, favourable_max=0, watch_max=0.2, warning_max=0.5)
-
-
-def soil_moisture_status(v: Optional[float]) -> str:
-    return status_from_range(v, favourable_max=0.25, watch_max=0.18, warning_max=0.12, inverse=True)
-
-
-def access_status(minutes: Optional[float]) -> str:
-    return status_from_range(minutes, favourable_max=60, watch_max=120, warning_max=180)
-
-
-def value_or_phrase(value: Optional[float], good_text: str, mid_text: str, bad_text: str,
-                    good_test, mid_test) -> str:
-    if value is None:
-        return "The dataset does not return a reliable reading for this indicator at the selected boundary."
-    if good_test(value):
-        return good_text
-    if mid_test(value):
-        return mid_text
-    return bad_text
-
-
-def site_story(metrics: Dict[str, Any], tonnes: int, stage: str) -> Dict[str, Any]:
-    rain = safe_float(metrics.get("rain_anom_pct"))
-    lst = safe_float(metrics.get("lst_mean"))
-    flood = safe_float(metrics.get("flood_risk"))
-    soil_moisture = safe_float(metrics.get("soil_moisture"))
-    market = safe_float(metrics.get("travel_time_to_market"))
-    water = safe_float(metrics.get("water_context_signal_pct") or metrics.get("water_occ"))
-    tree = safe_float(metrics.get("tree_cover_context_pct") or metrics.get("tree_pct"))
-    slope = safe_float(metrics.get("slope"))
-
-    strengths: List[str] = []
-    pressures: List[str] = []
-    actions: List[str] = []
-
-    strengths.append(
-        f"At {tonnes} tonnes per day, the project is large enough for site conditions, transport reliability, drainage, and water planning to materially affect the business case."
-    )
-    strengths.append(
-        f"The operation is still at the {stage.lower()} stage, which means layout, drainage, water storage, traffic routing, and buffer decisions can still be improved before capital is locked in."
-    )
-
-    if flood is not None and flood < 0.2:
-        strengths.append(f"Flood depth is about {flood:.2f} m, which suggests flood exposure is present but not currently dominant in this screening.")
-    elif flood is not None:
-        pressures.append(f"Flood depth is about {flood:.2f} m, which means drainage and placement of digesters, storage, and roads should be treated as a design issue, not an afterthought.")
-        actions.append("Review road levels, bunding, runoff pathways, and where sensitive equipment or stockpiles would sit on the site.")
-
-    if market is not None and market <= 120:
-        strengths.append(f"Travel time to market or urban access is about {market:.0f} minutes, which is workable for moving waste in and products out if routing is planned properly.")
-    elif market is not None:
-        pressures.append(f"Travel time to market is about {market:.0f} minutes, so transport cost and feedstock continuity could weaken margins if routes are not tightly managed.")
-        actions.append("Map the main waste suppliers and prioritise route efficiency, backhauls, and supply contracts before scale-up.")
-
-    if rain is not None and rain < -10:
-        pressures.append(f"Rainfall is {rain:.1f}% below the long-term baseline, which raises the importance of water storage, reuse, and drought-proof operating design.")
-        actions.append("Treat water security as part of the financial model, not only as an environmental issue.")
-    elif rain is not None:
-        strengths.append(f"Rainfall is {rain:.1f}% relative to the long-term baseline, which does not by itself suggest an extreme rainfall signal at this stage.")
-
-    if lst is not None and lst >= 30:
-        pressures.append(f"Recent land-surface temperature is about {lst:.1f} °C, which may increase odour pressure, worker discomfort, and the need for heat-conscious site design.")
-        actions.append("Build shade, ventilation, and heat-safe operating zones into the site design and community-management plan.")
-    elif lst is not None:
-        strengths.append(f"Recent land-surface temperature is about {lst:.1f} °C, which does not indicate an extreme heat signal for the selected boundary.")
-
-    if soil_moisture is not None and soil_moisture < 0.18:
-        pressures.append(f"Soil moisture is {soil_moisture:.3f}, which points to relatively dry near-surface conditions; that matters for dust, landscaping, rehabilitation, and runoff control.")
-        actions.append("Plan hardstanding, dust control, and rehabilitation areas carefully so the site does not create avoidable nuisance or erosion pressure.")
-
-    if water is not None:
-        if water >= 15:
-            strengths.append(f"The broader water-context signal is {water:.1f}, which suggests visible water features are part of the wider landscape and should be considered in drainage and protection planning.")
-        elif water < 5:
-            pressures.append(f"The broader water-context signal is only {water:.1f}, which suggests low visible water presence and reinforces the need for conservative water planning.")
-            actions.append("Design with low-water assumptions in mind and emphasise storage, reuse, and operational efficiency.")
-
-    if tree is not None and tree < 10:
-        pressures.append(f"Tree-cover context is about {tree:.1f}%, so the site does not sit in a strongly buffered or wooded landscape; screening, wind, heat, and visual buffering may therefore need more deliberate design.")
-        actions.append("Use planting, screening, and landscape buffers where needed to support community fit and site resilience.")
-
-    if slope is not None and slope > 8:
-        pressures.append(f"Average slope is about {slope:.1f}°, which may complicate drainage, civil works, and access design.")
-        actions.append("Check cut-and-fill, drainage direction, and vehicle movement areas before final engineering decisions.")
-
-    if not pressures:
-        pressures.append("No single dominant environmental warning stands out in this first screening, but feedstock continuity, drainage, odour, community fit, and water design still need disciplined planning.")
-        actions.append("Use this screening as an early decision-support tool before finalising detailed design, supplier contracts, and investor messaging.")
-
-    headline = (
-        "This platform asks a simple business question: can BL Turner run a waste-to-fertiliser and biogas operation here reliably, "
-        "without avoidable environmental or operating friction? The answer depends less on one score and more on a portfolio of signals across water, heat, access, flood exposure, and site fit."
-    )
-    return {"headline": headline, "strengths": strengths[:5], "pressures": pressures[:5], "actions": actions[:5]}
-
-
-def dependency_impact_view(metrics: Dict[str, Any], tonnes: int) -> Dict[str, List[Dict[str, str]]]:
-    water = safe_float(metrics.get("water_context_signal_pct") or metrics.get("water_occ"))
-    rain = safe_float(metrics.get("rain_anom_pct"))
-    flood = safe_float(metrics.get("flood_risk"))
-    heat = safe_float(metrics.get("lst_mean"))
-    market = safe_float(metrics.get("travel_time_to_market"))
-    tree = safe_float(metrics.get("tree_cover_context_pct") or metrics.get("tree_pct"))
-
-    dependencies = [
-        {
-            "name": "Feedstock continuity",
-            "story": f"At {tonnes} tonnes per day, the business depends on a steady inflow of food waste, commercial kitchen waste, distribution-centre waste, and other approved organic streams. The environmental platform cannot replace commercial contracts, but it does show whether the site is likely to add transport, flood, or heat friction to that supply model.",
-            "watch": f"Access signal {fmt_num(market, 0, ' min')}; flood signal {fmt_num(flood, 2, ' m')}.",
-        },
-        {
-            "name": "Water for operations and cleaning",
-            "story": f"The site depends on water for processing, washdown, and general operations. Current rainfall is {fmt_num(rain, 1, '%')} relative to the long-term baseline and the broader water-context signal is {fmt_num(water, 1)}.",
-            "watch": "Storage, reuse, washdown planning, and whether water stress could push up operating cost.",
-        },
-        {
-            "name": "A workable site and stable access",
-            "story": f"Current flood depth is {fmt_num(flood, 2, ' m')} and travel access is about {fmt_num(market, 0, ' min')}. These are practical design and operating signals, not abstract ESG numbers.",
-            "watch": "Drainage layout, road access, all-weather operations, and safe movement of heavy vehicles.",
-        },
-        {
-            "name": "Operating conditions and community fit",
-            "story": f"Recent land-surface temperature is about {fmt_num(heat, 1, ' °C')} and tree-cover context is {fmt_num(tree, 1, '%')}. Those signals matter because hotter, less-buffered sites can intensify worker discomfort, visual exposure, and nuisance management.",
-            "watch": "Shade, screening, odour routing, and how the site presents to surrounding communities.",
-        },
-    ]
-
-    impacts = [
-        {
-            "name": "Landfill diversion",
-            "story": f"If the plant runs at the entered capacity of {tonnes} tonnes per day, it can materially reduce the amount of organic waste that goes to landfill.",
-            "link": "This is the clearest circular-economy story in the platform and should be central in funding and partnership discussions.",
-        },
-        {
-            "name": "Biogas and fertiliser output",
-            "story": "The project can convert a disposal problem into usable products. That improves the business case only if the site remains operationally stable and feedstock keeps flowing.",
-            "link": "Nature and operations affect revenue quality, not just compliance.",
-        },
-        {
-            "name": "Local nuisance and acceptance risk",
-            "story": f"Heat at {fmt_num(heat, 1, ' °C')}, access at {fmt_num(market, 0, ' min')}, and any unmanaged runoff or poor layout could create odour, traffic, or neighbour concern.",
-            "link": "Community resistance can slow the project even where the core technology is sound.",
-        },
-        {
-            "name": "Nature pressure around the site",
-            "story": f"Flood signal {fmt_num(flood, 2, ' m')} and tree-cover context {fmt_num(tree, 1, '%')} help show whether the surrounding landscape is likely to absorb disturbance well or whether the project should use more careful buffers and drainage controls.",
-            "link": "This affects future operating cost and reputational resilience.",
-        },
-    ]
-    return {"dependencies": dependencies, "impacts": impacts}
-
-
-def tnfd_portfolio_matrix(metrics: Dict[str, Any], tonnes: int, stage: str) -> pd.DataFrame:
-    rain = safe_float(metrics.get("rain_anom_pct"))
-    heat = safe_float(metrics.get("lst_mean"))
-    flood = safe_float(metrics.get("flood_risk"))
-    water = safe_float(metrics.get("water_context_signal_pct") or metrics.get("water_occ"))
-    soil = safe_float(metrics.get("soil_moisture"))
-    access = safe_float(metrics.get("travel_time_to_market"))
-    tree = safe_float(metrics.get("tree_cover_context_pct") or metrics.get("tree_pct"))
-    slope = safe_float(metrics.get("slope"))
-
-    rows = [
-        {
-            "TNFD lens": "Dependency",
-            "Indicator": "Water planning",
-            "Current reading": fmt_num(rain, 1, "%"),
-            "Status": rainfall_status(rain),
-            "What it means": f"Rainfall is {fmt_num(rain, 1, '%')} against the long-term baseline, so the site should not assume water will always be abundant.",
-            "Why it matters to BL Turner": "Water is needed for operations, cleaning, and stable processing.",
-            "What BL Turner should do": "Build storage, reuse, and dry-period planning into the business model.",
-        },
-        {
-            "TNFD lens": "Dependency",
-            "Indicator": "Visible water context",
-            "Current reading": fmt_num(water, 1),
-            "Status": status_from_range(water, favourable_max=15, watch_max=5, warning_max=0, inverse=True),
-            "What it means": f"The broader water-context signal is {fmt_num(water, 1)}, which helps show whether the surrounding landscape has visible water features or a drier operating context.",
-            "Why it matters to BL Turner": "It shapes drainage, protection, and water-security thinking.",
-            "What BL Turner should do": "Overlay this with internal water demand, storage, and washdown design.",
-        },
-        {
-            "TNFD lens": "Risk",
-            "Indicator": "Flood exposure",
-            "Current reading": fmt_num(flood, 2, " m"),
-            "Status": flood_status(flood),
-            "What it means": f"Mapped flood depth is {fmt_num(flood, 2, ' m')}, which gives an early signal on whether roads, digesters, and storage areas may need more careful siting.",
-            "Why it matters to BL Turner": "Flooding can interrupt operations and raise infrastructure cost.",
-            "What BL Turner should do": "Use drainage, levels, bunding, and access design to reduce operational disruption.",
-        },
-        {
-            "TNFD lens": "Risk",
-            "Indicator": "Heat and odour pressure",
-            "Current reading": fmt_num(heat, 1, " °C"),
-            "Status": heat_status(heat),
-            "What it means": f"Land-surface temperature is {fmt_num(heat, 1, ' °C')}, which is an early warning for worker comfort, nuisance management, and heat-aware design.",
-            "Why it matters to BL Turner": "Higher heat can make site management harder and community issues more sensitive.",
-            "What BL Turner should do": "Plan shade, airflow, and operations so hot periods do not create avoidable friction.",
-        },
-        {
-            "TNFD lens": "Dependency",
-            "Indicator": "Soil and drainage condition",
-            "Current reading": fmt_num(soil, 3),
-            "Status": soil_moisture_status(soil),
-            "What it means": f"Soil moisture is {fmt_num(soil, 3)}, which helps indicate whether near-surface conditions are dry or wet in a way that could affect dust, drainage, and rehabilitation.",
-            "Why it matters to BL Turner": "This influences runoff control, landscaping, and nuisance prevention.",
-            "What BL Turner should do": "Use hardstanding, drainage control, and landscaping deliberately.",
-        },
-        {
-            "TNFD lens": "Opportunity",
-            "Indicator": "Access and logistics",
-            "Current reading": fmt_num(access, 0, " min"),
-            "Status": access_status(access),
-            "What it means": f"Estimated travel time is {fmt_num(access, 0, ' min')}, which is a practical logistics signal for collecting waste and distributing outputs.",
-            "Why it matters to BL Turner": f"At {tonnes} tonnes/day, weak routing can quickly erode margins.",
-            "What BL Turner should do": "Match site selection with supplier mapping and route planning.",
-        },
-        {
-            "TNFD lens": "Impact",
-            "Indicator": "Landscape buffering",
-            "Current reading": fmt_num(tree, 1, "%"),
-            "Status": status_from_range(tree, favourable_max=20, watch_max=10, warning_max=5, inverse=True),
-            "What it means": f"Tree-cover context is {fmt_num(tree, 1, '%')}, which helps show whether the project sits in a buffered landscape or a more exposed one.",
-            "Why it matters to BL Turner": "It affects visual screening, heat, and site fit with neighbours.",
-            "What BL Turner should do": "Use buffers, screening, and planting where the site is visually or climatically exposed.",
-        },
-        {
-            "TNFD lens": "Risk",
-            "Indicator": "Terrain slope",
-            "Current reading": fmt_num(slope, 1, "°"),
-            "Status": status_from_range(slope, favourable_max=3, watch_max=6, warning_max=10),
-            "What it means": f"Average slope is {fmt_num(slope, 1, '°')}, which is a practical civil-works and runoff signal rather than a cosmetic number.",
-            "Why it matters to BL Turner": f"It matters most at the {stage.lower()} stage while the layout can still change.",
-            "What BL Turner should do": "Check cut-and-fill, vehicle movement, and runoff direction before detailed engineering.",
-        },
-    ]
-    return pd.DataFrame(rows)
-
-
-def prepare_actions(metrics: Dict[str, Any], tonnes: int, stage: str) -> List[str]:
-    rain = safe_float(metrics.get("rain_anom_pct"))
-    flood = safe_float(metrics.get("flood_risk"))
-    heat = safe_float(metrics.get("lst_mean"))
-    access = safe_float(metrics.get("travel_time_to_market"))
-    water = safe_float(metrics.get("water_context_signal_pct") or metrics.get("water_occ"))
-    actions: List[str] = []
-
-    actions.append(
-        f"Use this as a {stage.lower()} decision tool: it is most valuable now, before site layout, drainage, traffic flow, and buffer design become expensive to change."
-    )
-    actions.append(
-        f"Build the feedstock model around the entered capacity of {tonnes} tonnes/day. The site view and the supplier view should be treated as one operating system, not two separate workstreams."
-    )
-    if rain is not None and rain < -10:
-        actions.append(f"Because rainfall is {rain:.1f}% below baseline, treat storage, washdown efficiency, and water reuse as core design issues.")
-    if flood is not None and flood >= 0.2:
-        actions.append(f"Because flood depth is {flood:.2f} m, review levels, stormwater routing, bunding, and vehicle access in wet periods.")
-    if heat is not None and heat >= 30:
-        actions.append(f"Because heat is around {heat:.1f} °C, include shading, odour-aware layout, and worker-safety controls early in the design.")
-    if access is not None and access > 120:
-        actions.append(f"Because access time is about {access:.0f} minutes, build route efficiency and supplier contracting into the financial case before scaling volumes.")
-    if water is not None and water < 5:
-        actions.append(f"Because the broader water-context signal is only {water:.1f}, do not assume local conditions will naturally support a water-intensive operating model.")
-    actions.append("Translate the strongest signals into lender, grant, and investor language: landfill diversion, operational continuity, avoided disruption, and fit-for-site design.")
-    return actions[:6]
-
-
-def business_value_table(metrics: Dict[str, Any], tonnes: int) -> pd.DataFrame:
-    annual_tonnes = tonnes * 330
-    rain = safe_float(metrics.get("rain_anom_pct"))
-    flood = safe_float(metrics.get("flood_risk"))
-    access = safe_float(metrics.get("travel_time_to_market"))
-    rows = [
-        ["Waste diverted from landfill", "Tonnes/year", f"{annual_tonnes:,.0f}", "Direct scale indicator based on entered daily capacity × 330 operating days."],
-        ["Water stress signal", "Rainfall anomaly", fmt_num(rain, 1, "%"), "Helps explain whether water planning may raise operating cost or resilience needs."],
-        ["Flood-disruption signal", "Flood depth proxy", fmt_num(flood, 2, " m"), "Helps show whether access, storage, and infrastructure may require extra spend."],
-        ["Transport effort", "Travel time", fmt_num(access, 0, " min"), "Longer trips can reduce margins and make feedstock continuity harder."],
-        ["Biogas and fertiliser outputs", "Commercial outputs", "Project-specific", "Value depends on technology conversion rates and market offtake, not satellite data alone."],
-        ["Community-fit value", "Risk reduction", "Design-dependent", "Better drainage, buffers, and odour controls can prevent delay, complaint, and reputational cost."],
-    ]
-    return pd.DataFrame(rows, columns=["Item", "Unit", "Current view", "Business meaning"])
-
-
-def build_map(center: List[float], zoom: int, lat: Optional[float], lon: Optional[float], buffer_m: float, existing_geojson: Optional[dict]) -> folium.Map:
+def build_map(center, zoom, draw_mode, lat=None, lon=None, buffer_m=None, existing_geojson=None, show_waste_network=True):
+    """Build a folium map. Always renders BL Turner main site, all waste
+    source nodes, and digestate off-take areas as colour-coded pins."""
     m = folium.Map(
         location=center,
         zoom_start=zoom,
@@ -552,6 +542,7 @@ def build_map(center: List[float], zoom: int, lat: Optional[float], lon: Optiona
         tiles="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
         attr="Esri Satellite",
     )
+
     Draw(
         export=False,
         draw_options={
@@ -564,18 +555,105 @@ def build_map(center: List[float], zoom: int, lat: Optional[float], lon: Optiona
         },
         edit_options={"edit": True, "remove": True},
     ).add_to(m)
+
     if existing_geojson:
-        folium.GeoJson(existing_geojson, style_function=lambda _: {"color": "#ff0000", "weight": 3, "fillOpacity": 0.05}).add_to(m)
-    if lat is not None and lon is not None:
-        folium.CircleMarker(
-            location=[lat, lon], radius=8, color=BRAND["primary"], weight=2,
-            fill=True, fill_color=BRAND["accent"], fill_opacity=0.95, tooltip="BL Turner site"
+        folium.GeoJson(
+            existing_geojson,
+            style_function=lambda x: {"color": "#ff0000", "weight": 3, "fillOpacity": 0.05},
         ).add_to(m)
-        folium.Circle([lat, lon], radius=float(buffer_m), color="#ff0000", weight=2, fill=False).add_to(m)
+
+    active_lat = None
+    active_lon = None
+    try:
+        if lat not in [None, "", "None"] and lon not in [None, "", "None"]:
+            active_lat = float(lat)
+            active_lon = float(lon)
+    except (TypeError, ValueError):
+        pass
+
+    # ----- Main site (always shown) -----
+    fg_main = folium.FeatureGroup(name="BL Turner main site", show=True)
+    folium.Marker(
+        location=[MAIN_SITE["lat"], MAIN_SITE["lon"]],
+        popup=folium.Popup(
+            f"<b>{MAIN_SITE['name']}</b><br>{MAIN_SITE['description']}<br>"
+            f"Lat {MAIN_SITE['lat']:.4f}, Lon {MAIN_SITE['lon']:.4f}",
+            max_width=320,
+        ),
+        tooltip="BL Turner AD plant (KwaDukuza)",
+        icon=folium.Icon(color="darkblue", icon="industry", prefix="fa"),
+    ).add_to(fg_main)
+    fg_main.add_to(m)
+
+    if show_waste_network:
+        # ----- Waste source nodes -----
+        fg_sources = folium.FeatureGroup(name="Waste feedstock sources", show=True)
+        for src in WASTE_SOURCES:
+            popup_html = (
+                f"<b>{src['name']}</b><br>"
+                f"<i>{src.get('municipality', '')} · {src.get('district', '')}</i><br>"
+                f"Stream: {src.get('waste_stream', '—')}<br>"
+                f"~{src.get('tons_per_day_est', 0)} t/day · {src.get('collection_frequency', '—')}<br>"
+                f"Role: {src.get('role', '—')}"
+            )
+            folium.CircleMarker(
+                location=[src["lat"], src["lon"]],
+                radius=max(5, min(14, (src.get("tons_per_day_est", 1) or 1) * 0.6)),
+                color="#b45309",
+                weight=2,
+                fill=True,
+                fill_color="#f59e0b",
+                fill_opacity=0.75,
+                popup=folium.Popup(popup_html, max_width=340),
+                tooltip=f"{src['name']} (~{src.get('tons_per_day_est', 0)} t/day)",
+            ).add_to(fg_sources)
+            # Line from source to plant
+            folium.PolyLine(
+                locations=[[src["lat"], src["lon"]], [MAIN_SITE["lat"], MAIN_SITE["lon"]]],
+                color="#f59e0b",
+                weight=1.2,
+                opacity=0.35,
+                dash_array="6,6",
+            ).add_to(fg_sources)
+        fg_sources.add_to(m)
+
+        # ----- Digestate off-take areas -----
+        fg_offtake = folium.FeatureGroup(name="Digestate / fertiliser off-take", show=True)
+        for area in DIGESTATE_OFFTAKE_AREAS:
+            popup_html = (
+                f"<b>{area['name']}</b><br>"
+                f"<i>{area.get('description', '')}</i><br>"
+                f"Role: {area.get('role', '—')}"
+            )
+            folium.CircleMarker(
+                location=[area["lat"], area["lon"]],
+                radius=9,
+                color="#065f46",
+                weight=2,
+                fill=True,
+                fill_color="#10b981",
+                fill_opacity=0.65,
+                popup=folium.Popup(popup_html, max_width=320),
+                tooltip=f"Digestate off-take: {area['name']}",
+            ).add_to(fg_offtake)
+        fg_offtake.add_to(m)
+
+    # Optional drawn coordinate marker / buffer ring
+    if draw_mode == "Enter coordinates" and active_lat is not None and active_lon is not None:
+        folium.Circle(
+            [active_lat, active_lon],
+            radius=float(buffer_m or 500),
+            color="#ff0000",
+            weight=2,
+            fill=False,
+        ).add_to(m)
+
+    folium.LayerControl(collapsed=False).add_to(m)
+
     return m
 
 
-def extract_drawn_geometry(map_data: dict | None) -> Optional[dict]:
+def extract_drawn_geometry(map_data):
     if not map_data:
         return None
     drawings = map_data.get("all_drawings") or []
@@ -584,25 +662,99 @@ def extract_drawn_geometry(map_data: dict | None) -> Optional[dict]:
     return drawings[-1]
 
 
-def get_geometry_payload(mode: str, drawn_geojson: Optional[dict], lat: str, lon: str, buffer_m: float):
+def get_geometry_payload(drawn_geojson, lat, lon, buffer_m, mode):
     if mode == "Draw polygon":
         if drawn_geojson:
-            return drawn_geojson, geojson_to_ee_geometry(drawn_geojson)
-        return None, None
+            return "Polygon captured from the map.", drawn_geojson, geojson_to_ee_geometry(drawn_geojson)
+        return "No polygon has been drawn yet.", None, None
+
     try:
         lat_val = float(lat)
         lon_val = float(lon)
-        payload = {"type": "PointBuffer", "lat": lat_val, "lon": lon_val, "buffer_m": float(buffer_m)}
-        return payload, point_buffer_to_ee_geometry(lat_val, lon_val, float(buffer_m))
+        geom = point_buffer_to_ee_geometry(lat_val, lon_val, float(buffer_m))
+        payload = {
+            "type": "PointBuffer",
+            "lat": lat_val,
+            "lon": lon_val,
+            "buffer_m": float(buffer_m),
+        }
+        return (
+            f"Point entered at ({lat_val:.5f}, {lon_val:.5f}) with {buffer_m} m buffer.",
+            payload,
+            geom,
+        )
+    except (TypeError, ValueError):
+        return "Please enter valid latitude and longitude.", None, None
+
+
+def _extract_coords_from_geojson(geom_obj):
+    coords = []
+    if not isinstance(geom_obj, dict):
+        return coords
+    gtype = (geom_obj.get("geometry") or geom_obj).get("type")
+    gcoords = (geom_obj.get("geometry") or geom_obj).get("coordinates", [])
+    if gtype == "Polygon":
+        for ring in gcoords[:1]:
+            for pt in ring:
+                if isinstance(pt, (list, tuple)) and len(pt) >= 2:
+                    coords.append((float(pt[1]), float(pt[0])))
+    elif gtype == "MultiPolygon":
+        for poly in gcoords[:1]:
+            for ring in poly[:1]:
+                for pt in ring:
+                    if isinstance(pt, (list, tuple)) and len(pt) >= 2:
+                        coords.append((float(pt[1]), float(pt[0])))
+    return coords
+
+
+def update_map_view_from_selection(geometry_payload, mode):
+    try:
+        if mode == "Enter coordinates" and isinstance(geometry_payload, dict) and geometry_payload.get("type") == "PointBuffer":
+            lat_val = float(geometry_payload.get("lat"))
+            lon_val = float(geometry_payload.get("lon"))
+            buffer_m = float(geometry_payload.get("buffer_m", 500))
+            st.session_state["map_center"] = [lat_val, lon_val]
+            if buffer_m <= 500:
+                st.session_state["map_zoom"] = 16
+            elif buffer_m <= 1500:
+                st.session_state["map_zoom"] = 15
+            elif buffer_m <= 5000:
+                st.session_state["map_zoom"] = 13
+            else:
+                st.session_state["map_zoom"] = 11
+            return
+
+        coords = _extract_coords_from_geojson(geometry_payload)
+        if coords:
+            lats = [c[0] for c in coords]
+            lons = [c[1] for c in coords]
+            st.session_state["map_center"] = [sum(lats) / len(lats), sum(lons) / len(lons)]
+            lat_span = max(lats) - min(lats)
+            lon_span = max(lons) - min(lons)
+            span = max(lat_span, lon_span)
+            if span <= 0.002:
+                st.session_state["map_zoom"] = 16
+            elif span <= 0.008:
+                st.session_state["map_zoom"] = 15
+            elif span <= 0.02:
+                st.session_state["map_zoom"] = 14
+            elif span <= 0.05:
+                st.session_state["map_zoom"] = 12
+            else:
+                st.session_state["map_zoom"] = 10
     except Exception:
-        return None, None
+        pass
 
 
-def fc_to_df(fc) -> pd.DataFrame:
+# -----------------------------------------------------------------------------
+# Earth Engine data helpers
+# -----------------------------------------------------------------------------
+def fc_to_dataframe(fc) -> pd.DataFrame:
     info = fc.getInfo()
     rows = []
     for feature in info.get("features", []):
-        rows.append(feature.get("properties", {}))
+        props = feature.get("properties", {})
+        rows.append(props)
     return pd.DataFrame(rows)
 
 
@@ -618,265 +770,1206 @@ def prep_year_df(df: pd.DataFrame) -> pd.DataFrame:
     return df.sort_values("year")
 
 
-def render_plot(df: pd.DataFrame, x: str, y: str, title: str, kind: str = "line") -> None:
-    if df.empty or x not in df.columns or y not in df.columns:
-        st.info(f"No data available for {title.lower()}.")
-        return
-    fig = px.bar(df, x=x, y=y, title=title) if kind == "bar" else px.line(df, x=x, y=y, title=title)
+def df_chart_to_png_bytes(df, x_col, y_col, title, kind="line", x_label="Year", y_label="Value"):
+    if df is None or df.empty:
+        return None
+    fig, ax = plt.subplots(figsize=(10, 5.2))
+    if kind == "bar":
+        ax.bar(df[x_col], df[y_col])
+    else:
+        ax.plot(df[x_col], df[y_col], marker="o")
+    ax.set_title(title)
+    ax.set_xlabel(x_label)
+    ax.set_ylabel(y_label)
+    ax.grid(True, alpha=0.3)
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    buf = BytesIO()
+    fig.savefig(buf, format="png", dpi=180, bbox_inches="tight")
+    plt.close(fig)
+    buf.seek(0)
+    return buf
+
+
+def landcover_bar_to_png_bytes(df):
+    if df is None or df.empty:
+        return None
+    df2 = df.sort_values("area_ha", ascending=False).copy()
+    fig, ax = plt.subplots(figsize=(10, 5.5))
+    ax.bar(df2["class_name"], df2["area_ha"])
+    ax.set_title("Current Land Cover Composition")
+    ax.set_xlabel("Land-cover class")
+    ax.set_ylabel("Area (ha)")
+    ax.grid(True, axis="y", alpha=0.3)
+    plt.xticks(rotation=45, ha="right")
+    plt.tight_layout()
+    buf = BytesIO()
+    fig.savefig(buf, format="png", dpi=180, bbox_inches="tight")
+    plt.close(fig)
+    buf.seek(0)
+    return buf
+
+
+def build_landcover_bar(df):
+    fig = px.bar(
+        df.sort_values("area_ha", ascending=False),
+        x="class_name", y="area_ha",
+        title="Current Land Cover Composition",
+    )
+    fig.update_layout(
+        xaxis_title="Land-cover class",
+        yaxis_title="Area (ha)",
+        showlegend=False,
+        margin=dict(l=40, r=20, t=60, b=80),
+    )
+    return fig
+
+
+def fetch_image_bytes(url: str, timeout: int = 60):
+    try:
+        r = requests.get(url, timeout=timeout)
+        r.raise_for_status()
+        buf = BytesIO(r.content)
+        buf.seek(0)
+        return buf
+    except Exception:
+        return None
+
+
+def fetch_pdf_ee_image_bytes(image, geom, dimensions=900, retries=3):
+    attempt_dims = [dimensions, 700, 500]
+    for i in range(min(retries, len(attempt_dims))):
+        try:
+            url = image_thumb_url(image, geom, dimensions=attempt_dims[i])
+            result = fetch_image_bytes(url, timeout=150)
+            if result is not None:
+                return result
+        except Exception:
+            pass
+    return None
+
+
+# -----------------------------------------------------------------------------
+# Waste sourcing visualisation helpers (BL Turner differentiator)
+# -----------------------------------------------------------------------------
+def waste_sources_to_dataframe():
+    rows = []
+    for src in WASTE_SOURCES:
+        rows.append({
+            "Source": src.get("name"),
+            "District": src.get("district"),
+            "Municipality": src.get("municipality"),
+            "Stream": src.get("waste_stream"),
+            "Est. tons/day": src.get("tons_per_day_est"),
+            "Frequency": src.get("collection_frequency"),
+            "Seasonality": src.get("seasonality"),
+            "Role": src.get("role"),
+        })
+    return pd.DataFrame(rows)
+
+
+def stream_mix_to_plotly_pie():
+    data = stream_mix_summary()
+    df = pd.DataFrame(data)
+    if df.empty:
+        return None
+    fig = px.pie(df, values="tons_per_day", names="stream",
+                 title="Feedstock mix by waste stream (est. tons/day)",
+                 hole=0.4)
     fig.update_layout(margin=dict(l=20, r=20, t=60, b=20))
-    st.plotly_chart(fig, use_container_width=True)
+    return fig
 
 
+def district_mix_to_plotly_pie():
+    data = district_mix_summary()
+    df = pd.DataFrame(data)
+    if df.empty:
+        return None
+    fig = px.pie(df, values="tons_per_day", names="district",
+                 title="Feedstock mix by district (est. tons/day)",
+                 hole=0.4)
+    fig.update_layout(margin=dict(l=20, r=20, t=60, b=20))
+    return fig
+
+
+def seasonal_profile_to_plotly_bar():
+    data = seasonal_supply_profile()
+    df = pd.DataFrame(data)
+    if df.empty:
+        return None
+    fig = px.bar(df, x="month", y="projected_tons_per_day",
+                 title="Projected monthly feedstock supply (t/day)",
+                 labels={"month": "Month", "projected_tons_per_day": "Tons/day"})
+    # Nameplate reference line
+    fig.add_hline(y=100, line_dash="dash", line_color="#dc2626",
+                  annotation_text="Nameplate 100 t/day", annotation_position="top right")
+    fig.update_layout(margin=dict(l=40, r=20, t=60, b=60))
+    return fig
+
+
+def seasonal_profile_to_png_bytes():
+    data = seasonal_supply_profile()
+    if not data:
+        return None
+    df = pd.DataFrame(data)
+    fig, ax = plt.subplots(figsize=(10, 5.2))
+    ax.bar(df["month"], df["projected_tons_per_day"], color="#f59e0b")
+    ax.axhline(100, linestyle="--", color="#dc2626", linewidth=1.2,
+               label="Nameplate 100 t/day")
+    ax.set_title("Projected monthly feedstock supply")
+    ax.set_xlabel("Month")
+    ax.set_ylabel("Tons/day")
+    ax.grid(True, axis="y", alpha=0.3)
+    ax.legend()
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    buf = BytesIO()
+    fig.savefig(buf, format="png", dpi=180, bbox_inches="tight")
+    plt.close(fig)
+    buf.seek(0)
+    return buf
+
+
+# -----------------------------------------------------------------------------
+# Automated risk flags (BL Turner context — includes feedstock continuity)
+# -----------------------------------------------------------------------------
+def build_automated_risk_flags(metrics, continuity_risks=None):
+    flags = []
+
+    def add_flag(level, title, current_value, meaning, action):
+        flags.append({
+            "Level": level,
+            "Flag": title,
+            "Current value": current_value,
+            "Why it matters": meaning,
+            "Suggested action": action,
+        })
+
+    # Site environmental flags
+    try:
+        val = metrics.get("flood_risk")
+        if val is not None and float(val) >= 0.3:
+            f = float(val)
+            add_flag("High", "Flood exposure on AD plant site", f"{f:.2f} m",
+                     f"Mapped 1-in-100 year flood depth of {f:.2f} m could affect digesters, "
+                     "biogas holders, electrical equipment and feedstock reception areas.",
+                     "Commission a local drainage assessment and plan for flood bunding or "
+                     "raised infrastructure where pooling is likely.")
+        elif val is not None and float(val) > 0.05:
+            f = float(val)
+            add_flag("Moderate", "Low-lying flood sensitivity", f"{f:.2f} m",
+                     f"Some flood signal ({f:.2f} m) is present in the landscape around the plant.",
+                     "Review stormwater drainage routes and keep critical equipment above the "
+                     "local 1-in-100 flood line.")
+    except Exception:
+        pass
+
+    try:
+        val = metrics.get("lst_mean")
+        if val is not None and float(val) >= 32:
+            f = float(val)
+            add_flag("Moderate", "Elevated heat load",
+                     f"{f:.1f} °C",
+                     f"Sustained surface heat ({f:.1f} °C) can raise digester cooling and "
+                     "odour control loads in summer peaks.",
+                     "Review heat management of digester jackets, CHP cooling and feedstock "
+                     "reception during summer months.")
+    except Exception:
+        pass
+
+    try:
+        val = metrics.get("rain_anom_pct")
+        if val is not None and float(val) < -15:
+            f = float(val)
+            add_flag("Moderate", "Dry rainfall regime",
+                     f"{f:.1f}%",
+                     f"Rainfall is running about {abs(f):.0f}% below baseline, which affects "
+                     "process water availability and nearby digestate demand.",
+                     "Plan process water storage and consider rainwater/recycled water capture.")
+    except Exception:
+        pass
+
+    # Feedstock continuity risks from waste_sourcing module
+    if continuity_risks:
+        for risk in continuity_risks:
+            add_flag(
+                risk.get("level", "Moderate"),
+                risk.get("risk", "Supply continuity"),
+                risk.get("indicator", "—"),
+                risk.get("meaning", "—"),
+                risk.get("mitigation", "—"),
+            )
+
+    if not flags:
+        add_flag("Monitor", "No dominant automated flag", "Current conditions",
+                 "No single dominant warning sign has been triggered by the current metric set.",
+                 "Continue routine monitoring and refresh the assessment as new data arrives.")
+
+    return flags
+
+
+def risk_flags_to_dataframe(flags):
+    df = pd.DataFrame(flags)
+    if df.empty:
+        return df
+    return df.fillna("Not available").astype(str)
+
+
+# =============================================================================
+# Main page
+# =============================================================================
+
+init_auth_state()
 init_state()
+
 if not st.session_state["authenticated"]:
     login_gate()
+    st.stop()
 
-initialize_ee_from_secrets(st)
+try:
+    initialize_ee_from_secrets(st)
+except Exception as e:
+    st.error("Earth Engine initialization failed. Check your Streamlit secrets and Google Cloud permissions.")
+    st.exception(e)
+    st.stop()
 
+# -----------------------------------------------------------------------------
+# Global CSS / hero
+# -----------------------------------------------------------------------------
 st.markdown(
-    f"""
-    <div style="padding:24px 26px;border-radius:24px;background:linear-gradient(135deg,{BRAND['primary']} 0%, #204f84 60%, #2d6ca8 100%);color:white;margin-bottom:20px;">
-        <div style="font-size:30px;font-weight:800;">{APP_TITLE}</div>
-        <div style="font-size:15px;opacity:0.95;margin-top:4px;">{APP_SUBTITLE}</div>
-        <div style="font-size:13px;opacity:0.9;margin-top:8px;">{APP_TAGLINE}</div>
-    </div>
+    """
+    <style>
+    :root {
+        --eni-bg: #f4f7fb;
+        --eni-surface: #ffffff;
+        --eni-ink: #0f172a;
+        --eni-muted: #64748b;
+        --eni-line: #e2e8f0;
+        --eni-brand: #103c63;
+        --eni-brand-2: #1f5d8c;
+        --eni-accent: #dbeafe;
+        --eni-shadow: 0 14px 40px rgba(15, 23, 42, 0.08);
+    }
+    .stApp {
+        background:
+            radial-gradient(circle at top left, rgba(219,234,254,0.75), transparent 30%),
+            linear-gradient(180deg, #f8fbff 0%, var(--eni-bg) 100%);
+    }
+    .block-container {
+        padding-top: 2.4rem;
+        padding-bottom: 2.5rem;
+        max-width: 1400px;
+    }
+    .eni-top-spacer { height: 8px; }
+    .eni-logo-wrap { padding-top: 10px; }
+    .eni-hero {
+        margin-top: 10px;
+        background: linear-gradient(135deg, #0d2f4d 0%, #103c63 52%, #1f5d8c 100%);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 28px;
+        padding: 30px 34px;
+        color: white;
+        box-shadow: 0 24px 60px rgba(16,60,99,0.22);
+        margin-bottom: 22px;
+    }
+    .eni-eyebrow {
+        display: inline-block;
+        padding: 7px 12px;
+        border-radius: 999px;
+        background: rgba(255,255,255,0.12);
+        font-size: 0.80rem;
+        letter-spacing: 0.02em;
+        margin-bottom: 12px;
+    }
+    .eni-title { font-size: 2.35rem; line-height: 1.05; font-weight: 800; margin: 0 0 6px 0; }
+    .eni-subtitle { color: rgba(255,255,255,0.88); font-size: 1rem; max-width: 800px; margin-bottom: 14px; }
+    .eni-step-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+    .eni-step {
+        background: rgba(255,255,255,0.10);
+        border: 1px solid rgba(255,255,255,0.10);
+        border-radius: 18px;
+        padding: 14px 16px;
+        min-height: 98px;
+    }
+    .eni-step-num {
+        font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em;
+        color: rgba(255,255,255,0.72); margin-bottom: 4px;
+    }
+    .eni-step-title { font-size: 1rem; font-weight: 700; margin-bottom: 3px; overflow-wrap: anywhere; }
+    .eni-step-copy { font-size: 0.84rem; line-height: 1.35; color: rgba(255,255,255,0.82); overflow-wrap: anywhere; }
+    .eni-section {
+        background: rgba(255,255,255,0.72);
+        border: 1px solid rgba(226,232,240,0.95);
+        border-radius: 24px;
+        padding: 20px 22px;
+        box-shadow: var(--eni-shadow);
+        margin-bottom: 18px;
+        backdrop-filter: blur(4px);
+    }
+    .eni-card {
+        background: var(--eni-surface);
+        border: 1px solid var(--eni-line);
+        border-radius: 20px;
+        padding: 16px 16px 14px 16px;
+        min-height: 124px;
+        box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+        overflow: hidden;
+    }
+    .eni-card-label { font-size: 0.80rem; color: var(--eni-muted); line-height: 1.25; overflow-wrap: anywhere; }
+    .eni-card-value { font-size: 1.7rem; line-height: 1.12; font-weight: 800; color: var(--eni-ink); margin-top: 8px; overflow-wrap: anywhere; }
+    .eni-card-subtext { font-size: 0.75rem; line-height: 1.35; color: var(--eni-muted); margin-top: 8px; overflow-wrap: anywhere; }
+    .eni-kicker { font-size: 0.78rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #335b7f; margin-bottom: 8px; }
+    .eni-small { color: var(--eni-muted); font-size: 0.92rem; }
+    div[data-baseweb="tab-list"] { gap: 8px; padding-bottom: 8px; flex-wrap: wrap; }
+    button[data-baseweb="tab"] {
+        background: rgba(255,255,255,0.9);
+        border: 1px solid var(--eni-line);
+        border-radius: 999px;
+        padding: 8px 14px;
+    }
+    button[data-baseweb="tab"][aria-selected="true"] {
+        background: #103c63;
+        color: white;
+        border-color: #103c63;
+    }
+    .stButton > button, .stDownloadButton > button {
+        border-radius: 14px;
+        min-height: 44px;
+        font-weight: 700;
+        border: 1px solid #103c63;
+    }
+    .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #103c63 0%, #1f5d8c 100%);
+        border: none;
+    }
+    .stDataFrame, .stPlotlyChart, .stImage {
+        border-radius: 18px;
+        overflow: hidden;
+    }
+    @media (max-width: 768px) {
+        .eni-step-grid { grid-template-columns: 1fr !important; gap: 10px !important; }
+        .eni-title { font-size: 1.65rem !important; }
+        .eni-subtitle { font-size: 0.92rem !important; }
+    }
+    </style>
     """,
     unsafe_allow_html=True,
 )
 
-with st.sidebar:
-    st.markdown("### Access")
-    st.success(f"Signed in as {st.session_state['username']}")
-    if st.button("Log out", use_container_width=True):
-        st.session_state["authenticated"] = False
-        st.rerun()
+st.markdown('<div class="eni-top-spacer"></div>', unsafe_allow_html=True)
 
-    st.markdown("### Project setup")
-    st.text_input("Project", value=BL_TURNER_SITE["name"], disabled=True)
-    st.text_input("Category", value=CATEGORY, disabled=True)
-    st.text_input("Municipality", value=BL_TURNER_SITE["municipality"], disabled=True)
+hero_left, hero_right = st.columns([1.05, 4.95])
 
-    st.session_state["draw_mode"] = st.radio(
-        "Boundary input",
-        ["Enter coordinates", "Draw polygon"],
-        index=0 if st.session_state["draw_mode"] == "Enter coordinates" else 1,
+with hero_left:
+    st.markdown('<div class="eni-logo-wrap">', unsafe_allow_html=True)
+    if LOGO_PATH.exists():
+        st.image(str(LOGO_PATH), width=210)
+    st.markdown('</div>', unsafe_allow_html=True)
+
+with hero_right:
+    st.markdown(
+        f"""
+        <div class="eni-hero">
+            <div class="eni-eyebrow">BL Turner Group · Organic Waste · Anaerobic Digestion · Biogas</div>
+            <div class="eni-title">{APP_TITLE}</div>
+            <div class="eni-subtitle">{APP_SUBTITLE}</div>
+            <div class="eni-subtitle" style="margin-bottom:18px;">
+                A TNFD LEAP workspace for the 100 t/day AD plant at Portion 159 of New Guelderland,
+                KwaDukuza — with a dedicated view of feedstock sourcing across eThekwini, iLembe,
+                uMgungundlovu and Western KZN.
+            </div>
+            <div class="eni-step-grid">
+                <div class="eni-step">
+                    <div class="eni-step-num">LEAP · Locate</div>
+                    <div class="eni-step-title">Plant & supply network</div>
+                    <div class="eni-step-copy">Main site, waste sources and digestate off-take areas on one map.</div>
+                </div>
+                <div class="eni-step">
+                    <div class="eni-step-num">LEAP · Evaluate</div>
+                    <div class="eni-step-title">Feedstock frequency & tonnage</div>
+                    <div class="eni-step-copy">Daily, weekly and seasonal supply projections against the 100 t/day nameplate.</div>
+                </div>
+                <div class="eni-step">
+                    <div class="eni-step-num">LEAP · Assess</div>
+                    <div class="eni-step-title">Continuity of supply</div>
+                    <div class="eni-step-copy">Concentration, logistics, biosecurity and municipal-contract dependencies.</div>
+                </div>
+                <div class="eni-step">
+                    <div class="eni-step-num">LEAP · Prepare</div>
+                    <div class="eni-step-title">TNFD · NPI · avoided methane</div>
+                    <div class="eni-step-copy">Disclosure-ready outputs and a positive landfill-diversion narrative for funders.</div>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
-    st.session_state["lat_input"] = st.text_input("Latitude", value=st.session_state["lat_input"])
-    st.session_state["lon_input"] = st.text_input("Longitude", value=st.session_state["lon_input"])
-    st.session_state["buffer_input"] = st.number_input("Buffer radius (m)", min_value=100, max_value=5000, value=int(st.session_state["buffer_input"]), step=100)
 
-    hist_start = st.number_input("Historical start year", min_value=1984, max_value=LAST_FULL_YEAR, value=2015, step=1)
-    hist_end = st.number_input("Historical end year", min_value=1984, max_value=LAST_FULL_YEAR, value=LAST_FULL_YEAR, step=1)
+st.markdown("---")
 
-    st.markdown("### Business profile")
-    tonnes = st.number_input("Daily waste capacity (tonnes/day)", min_value=1, value=100, step=1)
-    stage = st.selectbox("Business stage", ["Pre-development", "Pilot", "Construction", "Operational"], index=0)
-    include_npc = st.checkbox("Include non-profit women’s empowerment angle", value=True)
-    run_button = st.button("Run BL Turner assessment", use_container_width=True, type="primary")
+# -----------------------------------------------------------------------------
+# Site selection controls
+# -----------------------------------------------------------------------------
+control_left, control_mid, control_right = st.columns([1.85, 1.0, 0.75])
+with control_left:
+    st.selectbox("Site", PRESETS, key="preset_selector", on_change=preset_changed)
+with control_mid:
+    st.selectbox("Business category", CATEGORIES, key="category_selector")
+with control_right:
+    st.markdown("<div style='height: 1.9rem;'></div>", unsafe_allow_html=True)
+    actions_a, actions_b = st.columns(2)
+    with actions_a:
+        st.button("Reset", width='stretch', on_click=reset_selection)
+    with actions_b:
+        if st.button("Sign out", width='stretch'):
+            logout_action()
 
-left_top, right_top = st.columns([1.05, 1.15])
-with left_top:
-    st.subheader("Business context")
-    st.write(
-        "This version is built for BL Turner’s planned organic waste-to-fertiliser and biogas project in KwaDukuza. "
-        "It is designed to speak in plain language, but every core statement should still come back to an environmental signal, a business dependency, or a real operating implication."
+mode_col1, mode_col2 = st.columns([1, 1])
+with mode_col1:
+    st.radio(
+        "Site definition method",
+        ["Draw polygon", "Enter coordinates"],
+        key="draw_mode",
+        horizontal=True,
     )
-    st.info(
-        "Focus: site viability, feedstock continuity, water and flood context, heat and nuisance pressure, access, and what these mean for project readiness."
+with mode_col2:
+    st.number_input(
+        "Buffer radius (metres)",
+        min_value=100,
+        max_value=50000,
+        step=100,
+        key="buffer_input",
+        disabled=(st.session_state["draw_mode"] == "Draw polygon"),
     )
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown("#### What the business depends on")
-        for item in [
-            "Reliable organic waste supply",
-            "Water for operations and cleaning",
-            "A workable site with stable drainage and access",
-            "Community fit and nuisance management",
-        ]:
-            st.write(f"- {item}")
-    with c2:
-        st.markdown("#### What the business can change")
-        for item in [
-            "Landfill diversion",
-            "Biogas and fertiliser production",
-            "Operating cost and resilience",
-            "Neighbour and partner confidence",
-        ]:
-            st.write(f"- {item}")
 
-with right_top:
-    st.subheader("Site map")
-    lat_val = safe_float(st.session_state["lat_input"])
-    lon_val = safe_float(st.session_state["lon_input"])
-    site_map = build_map(
-        center=st.session_state["map_center"],
-        zoom=st.session_state["map_zoom"],
-        lat=lat_val,
-        lon=lon_val,
-        buffer_m=float(st.session_state["buffer_input"]),
-        existing_geojson=st.session_state["last_drawn_geojson"],
-    )
-    map_data = st_folium(site_map, height=430, width=None, returned_objects=["all_drawings"])
-    drawn_geojson = extract_drawn_geometry(map_data)
-    if drawn_geojson:
-        st.session_state["last_drawn_geojson"] = drawn_geojson
+if st.session_state["draw_mode"] == "Enter coordinates":
+    lat_col, lon_col = st.columns(2)
+    with lat_col:
+        st.text_input("Latitude", key="lat_input", placeholder="-29.3367")
+    with lon_col:
+        st.text_input("Longitude", key="lon_input", placeholder="31.2819")
 
-if run_button:
-    geom_payload, geom = get_geometry_payload(
-        st.session_state["draw_mode"],
-        st.session_state["last_drawn_geojson"],
-        st.session_state["lat_input"],
-        st.session_state["lon_input"],
-        float(st.session_state["buffer_input"]),
-    )
-    if geom is None:
-        st.error("Please provide valid coordinates or draw a polygon.")
-    else:
-        with st.spinner("Running Earth Engine assessment..."):
-            metrics = compute_metrics(geom, int(hist_start), int(hist_end), LAST_FULL_YEAR)
-            ndvi_hist = prep_year_df(fc_to_df(landsat_annual_ndvi_collection(geom, max(int(hist_start), 1984), int(hist_end))))
-            rain_hist = prep_year_df(fc_to_df(annual_rain_collection(geom, max(int(hist_start), 1984), int(hist_end))))
-            lst_hist = prep_year_df(fc_to_df(annual_lst_collection(geom, max(int(hist_start), 2001), int(hist_end))))
-            forest_hist = prep_year_df(fc_to_df(forest_loss_by_year_collection(geom, int(hist_start), int(hist_end))))
-            water_hist = prep_year_df(fc_to_df(water_history_collection(geom, max(int(hist_start), 1984), int(hist_end))))
-            landcover_df = fc_to_df(landcover_feature_collection(geom))
-            images = {
-                "satellite": satellite_with_polygon(geom, LAST_FULL_YEAR),
-                "ndvi": ndvi_with_polygon(geom, LAST_FULL_YEAR),
-                "landcover": landcover_with_polygon(geom),
-                "veg_change": vegetation_change_with_polygon(geom, int(hist_start), int(hist_end)),
-                "forest_loss": forest_loss_with_polygon(geom),
-                "flood_risk": flood_risk_with_polygon(geom),
-                "soil_condition": soil_condition_with_polygon(geom),
-                "heat_stress": heat_stress_with_polygon(geom, LAST_FULL_YEAR),
-            }
-            urls = {name: image_thumb_url(img, geom, dimensions=1600) for name, img in images.items()}
-        st.session_state["results_payload"] = {
-            "geom_payload": geom_payload,
-            "metrics": metrics,
-            "urls": urls,
-            "tonnes": tonnes,
-            "stage": stage,
-            "include_npc": include_npc,
-            "hist_start": int(hist_start),
-            "hist_end": int(hist_end),
-        }
-        st.session_state["historical_payload"] = {
-            "ndvi_hist": ndvi_hist,
-            "rain_hist": rain_hist,
-            "lst_hist": lst_hist,
-            "forest_hist": forest_hist,
-            "water_hist": water_hist,
-            "landcover_df": landcover_df,
-        }
+hist1, hist2 = st.columns(2)
+with hist1:
+    hist_start = st.number_input("Historical start year", min_value=1981, max_value=LAST_FULL_YEAR, value=2001, step=1)
+with hist2:
+    hist_end = st.number_input("Historical end year", min_value=1981, max_value=LAST_FULL_YEAR, value=LAST_FULL_YEAR, step=1)
 
-payload = st.session_state.get("results_payload")
-hist = st.session_state.get("historical_payload")
+st.markdown("### 1. Select the site and see the supply network")
+st.caption(
+    "The map shows BL Turner's main AD plant (dark blue), all feedstock source nodes "
+    "(orange — sized by estimated daily tonnage) and digestate off-take areas (green). "
+    "Zoom in and either draw a polygon or enter coordinates to screen a specific site."
+)
 
-if payload:
-    metrics = payload["metrics"]
-    tonnes = payload["tonnes"]
-    stage = payload["stage"]
-    story = site_story(metrics, tonnes, stage)
-    dep_view = dependency_impact_view(metrics, tonnes)
-    matrix_df = tnfd_portfolio_matrix(metrics, tonnes, stage)
+m = build_map(
+    center=st.session_state["map_center"],
+    zoom=st.session_state["map_zoom"],
+    draw_mode=st.session_state["draw_mode"],
+    lat=st.session_state["lat_input"],
+    lon=st.session_state["lon_input"],
+    buffer_m=st.session_state["buffer_input"],
+    existing_geojson=st.session_state["last_drawn_geojson"],
+    show_waste_network=True,
+)
 
-    st.markdown("---")
-    st.subheader("1. Executive story")
-    st.write(story["headline"])
+map_data = st_folium(
+    m,
+    width=None,
+    height=560,
+    returned_objects=["all_drawings"],
+    key=f"blturner_map_{st.session_state.get('map_nonce', 0)}",
+)
 
-    col_a, col_b, col_c = st.columns(3)
-    with col_a:
-        st.markdown("#### What looks positive")
-        for item in story["strengths"]:
-            st.write(f"- {item}")
-    with col_b:
-        st.markdown("#### What needs attention")
-        for item in story["pressures"]:
-            st.write(f"- {item}")
-    with col_c:
-        st.markdown("#### What to do next")
-        for item in story["actions"]:
-            st.write(f"- {item}")
+drawn_geojson = extract_drawn_geometry(map_data)
+if drawn_geojson is not None:
+    st.session_state["last_drawn_geojson"] = drawn_geojson
 
-    st.subheader("2. Quick view")
-    display_metric_cards([
-        {"label": "Site area", "value": fmt_num(metrics.get("area_ha"), 1, " ha"), "subtext": "Assessment area"},
-        {"label": "Rainfall signal", "value": fmt_num(metrics.get("rain_anom_pct"), 1, "%"), "subtext": rainfall_status(safe_float(metrics.get("rain_anom_pct")))},
-        {"label": "Heat signal", "value": fmt_num(metrics.get("lst_mean"), 1, " °C"), "subtext": heat_status(safe_float(metrics.get("lst_mean")))},
-        {"label": "Flood signal", "value": fmt_num(metrics.get("flood_risk"), 2, " m"), "subtext": flood_status(safe_float(metrics.get("flood_risk")))},
-        {"label": "Soil moisture", "value": fmt_num(metrics.get("soil_moisture"), 3), "subtext": soil_moisture_status(safe_float(metrics.get("soil_moisture")))},
-        {"label": "Travel access", "value": fmt_num(metrics.get("travel_time_to_market"), 0, " min"), "subtext": access_status(safe_float(metrics.get("travel_time_to_market")))},
-        {"label": "Water context", "value": fmt_num(metrics.get("water_context_signal_pct") or metrics.get("water_occ"), 1), "subtext": "Landscape water signal"},
-        {"label": "Tree context", "value": fmt_num(metrics.get("tree_cover_context_pct") or metrics.get("tree_pct"), 1, "%"), "subtext": "Landscape buffer signal"},
-    ])
+summary_text, geometry_payload, ee_geom = get_geometry_payload(
+    drawn_geojson=st.session_state["last_drawn_geojson"] if st.session_state["draw_mode"] == "Draw polygon" else None,
+    lat=st.session_state["lat_input"],
+    lon=st.session_state["lon_input"],
+    buffer_m=st.session_state["buffer_input"],
+    mode=st.session_state["draw_mode"],
+)
 
-    st.subheader("3. TNFD portfolio view")
-    st.caption("This is not one score. It is a portfolio of site signals translated into business meaning.")
-    st.dataframe(matrix_df, use_container_width=True, hide_index=True)
+st.markdown("### Current selection")
+st.write(summary_text)
 
-    st.subheader("4. Dependencies and impacts")
-    left, right = st.columns(2)
-    with left:
-        st.markdown("#### Dependencies")
-        for row in dep_view["dependencies"]:
-            with st.container(border=True):
-                st.markdown(f"**{row['name']}**")
-                st.write(row["story"])
-                st.caption(f"Watch: {row['watch']}")
-    with right:
-        st.markdown("#### Impacts")
-        for row in dep_view["impacts"]:
-            with st.container(border=True):
-                st.markdown(f"**{row['name']}**")
-                st.write(row["story"])
-                st.caption(f"Business link: {row['link']}")
+run_clicked = st.button("Generate nature intelligence assessment", type="primary", width='stretch')
 
-    st.subheader("5. Units of nature and units of money")
-    st.dataframe(business_value_table(metrics, tonnes), use_container_width=True, hide_index=True)
-    st.caption("Only the waste-diversion line is calculated directly from the entered operating capacity. Other rows are decision signals or project-specific commercial lines that need engineering and market inputs.")
+if run_clicked:
+    update_map_view_from_selection(geometry_payload, st.session_state["draw_mode"])
+    st.session_state["map_nonce"] = int(st.session_state.get("map_nonce", 0)) + 1
+    st.session_state["_run_after_zoom"] = True
+    st.rerun()
 
-    st.subheader("6. Visual evidence")
-    img_cols = st.columns(4)
-    image_items = [
-        ("Satellite view", payload["urls"]["satellite"], "The red outline shows the assessed site boundary."),
-        ("Vegetation", payload["urls"]["ndvi"], "Greener usually means stronger vegetation condition."),
-        ("Land cover", payload["urls"]["landcover"], "Shows the current land-cover context around the site."),
-        ("Flood risk", payload["urls"]["flood_risk"], "Darker blues indicate deeper flood exposure."),
-        ("Heat stress", payload["urls"]["heat_stress"], "Warmer colours indicate hotter surfaces."),
-        ("Soil condition", payload["urls"]["soil_condition"], "Simple view of surrounding soil-organic-carbon context."),
-        ("Vegetation change", payload["urls"]["veg_change"], "Green suggests improvement; red suggests decline."),
-        ("Forest loss", payload["urls"]["forest_loss"], "Highlights detected forest-loss areas in the surrounding context."),
-    ]
-    for idx, (title, url, caption) in enumerate(image_items):
-        with img_cols[idx % 4]:
-            st.markdown(f"**{title}**")
-            st.image(url)
-            st.caption(caption)
+run = st.session_state.pop("_run_after_zoom", False)
 
-    st.subheader("7. Historical trends")
-    if hist:
-        p1, p2 = st.columns(2)
-        with p1:
-            render_plot(hist["ndvi_hist"], "year", "value", "Historical vegetation (NDVI)")
-            render_plot(hist["lst_hist"], "year", "value", "Historical land-surface temperature")
-            render_plot(hist["water_hist"], "year", "value", "Historical water presence")
-        with p2:
-            render_plot(hist["rain_hist"], "year", "value", "Historical rainfall")
-            render_plot(hist["forest_hist"], "year", "value", "Historical forest loss", kind="bar")
-            render_plot(hist["landcover_df"], "class_name", "area_ha", "Current land-cover composition", kind="bar")
+if run:
+    if ee_geom is None:
+        st.warning("Please draw a polygon or enter valid coordinates before generating insights.")
+        st.stop()
 
-    st.subheader("8. Prepare")
-    for action in prepare_actions(metrics, tonnes, stage):
-        st.write(f"- {action}")
-    if payload["include_npc"]:
-        st.info(
-            "The non-profit women’s empowerment angle can strengthen the wider partnership story, but it should sit alongside the environmental and operating case rather than replace it."
+    if hist_start > hist_end:
+        st.warning("Historical start year must be earlier than or equal to end year.")
+        st.stop()
+
+    preset = st.session_state["active_preset"]
+    category = st.session_state["category_selector"]
+
+    with st.spinner("Running assessment (Earth Engine + waste sourcing analysis)..."):
+        metrics = compute_metrics(
+            geom=ee_geom,
+            hist_start=int(hist_start),
+            hist_end=int(hist_end),
+            last_full_year=LAST_FULL_YEAR,
+        )
+        risk = build_risk_and_recommendations(
+            preset=preset,
+            category=category,
+            metrics=metrics,
         )
 
-    st.subheader("9. Analysis notes")
-    if metrics.get("analysis_context_method"):
-        st.caption(str(metrics["analysis_context_method"]))
-else:
-    st.markdown("---")
-    st.info("Run the BL Turner assessment to generate the platform outputs.")
+        # Waste sourcing computations (BL Turner specific)
+        waste_df = waste_sources_to_dataframe()
+        stream_mix = stream_mix_summary()
+        district_mix = district_mix_summary()
+        monthly_supply = seasonal_supply_profile()
+        continuity_risks = continuity_risk_assessment()
+        frequency_table = collection_frequency_table()
+        headroom = supply_headroom()
+
+        # Earth Engine imagery
+        satellite_img = satellite_with_polygon(ee_geom, LAST_FULL_YEAR)
+        ndvi_img = ndvi_with_polygon(ee_geom, LAST_FULL_YEAR)
+        landcover_img = landcover_with_polygon(ee_geom)
+        forest_loss_img = forest_loss_with_polygon(ee_geom)
+        flood_risk_img = flood_risk_with_polygon(ee_geom)
+        soil_condition_img = soil_condition_with_polygon(ee_geom)
+        heat_stress_img = heat_stress_with_polygon(ee_geom, int(hist_end))
+        veg_change_img = vegetation_change_with_polygon(ee_geom, int(hist_start), int(hist_end))
+
+        satellite_url = image_thumb_url(satellite_img, ee_geom, 2200)
+        ndvi_url = image_thumb_url(ndvi_img, ee_geom, 1400)
+        landcover_url = image_thumb_url(landcover_img, ee_geom, 1400)
+        forest_loss_url = image_thumb_url(forest_loss_img, ee_geom, 1400)
+        flood_risk_url = image_thumb_url(flood_risk_img, ee_geom, 1400)
+        soil_condition_url = image_thumb_url(soil_condition_img, ee_geom, 1400)
+        heat_stress_url = image_thumb_url(heat_stress_img, ee_geom, 1400)
+        try:
+            veg_change_url = image_thumb_url(veg_change_img, ee_geom, 1400)
+        except Exception:
+            veg_change_url = None
+
+        # Historical time-series
+        ndvi_hist_df = prep_year_df(fc_to_dataframe(
+            landsat_annual_ndvi_collection(ee_geom, max(int(hist_start), 1984), int(hist_end))
+        ))
+        rain_hist_df = prep_year_df(fc_to_dataframe(
+            annual_rain_collection(ee_geom, max(int(hist_start), 1981), int(hist_end))
+        ))
+        lst_hist_df = prep_year_df(fc_to_dataframe(
+            annual_lst_collection(ee_geom, max(int(hist_start), 2001), int(hist_end))
+        ))
+        forest_hist_df = prep_year_df(fc_to_dataframe(
+            forest_loss_by_year_collection(ee_geom, int(hist_start), int(hist_end))
+        ))
+        water_hist_df = prep_year_df(fc_to_dataframe(
+            water_history_collection(ee_geom, max(int(hist_start), 1984), int(hist_end))
+        ))
+        lc_df = fc_to_dataframe(landcover_feature_collection(ee_geom))
+        if not lc_df.empty and "area_ha" in lc_df.columns:
+            lc_df["area_ha"] = pd.to_numeric(lc_df["area_ha"], errors="coerce")
+            lc_df = lc_df[lc_df["area_ha"].notna()].copy()
+            lc_df = lc_df[lc_df["area_ha"] > 0].copy()
+
+        # Automated risk flags
+        automated_flags = build_automated_risk_flags(metrics, continuity_risks)
+
+        # PDF chart payloads
+        seasonal_png = seasonal_profile_to_png_bytes()
+        chart_payloads = [
+            {
+                "title": "Projected monthly feedstock supply",
+                "description": "Month-by-month estimate of feedstock supply across all BL Turner source nodes, compared to the 100 t/day nameplate.",
+                "bytes": seasonal_png,
+            },
+            {
+                "title": "Historical NDVI",
+                "description": "Vegetation condition around the AD plant over time.",
+                "bytes": df_chart_to_png_bytes(ndvi_hist_df, "year", "value", "Historical NDVI (Landsat)", kind="line", y_label="NDVI"),
+            },
+            {
+                "title": "Historical rainfall",
+                "description": "Annual rainfall around the plant. Affects process water availability and downstream fertiliser demand.",
+                "bytes": df_chart_to_png_bytes(rain_hist_df, "year", "value", "Historical Rainfall (CHIRPS)", kind="line", y_label="mm"),
+            },
+            {
+                "title": "Historical land surface temperature",
+                "description": "Annual mean LST at the site — relevant to digester cooling and odour control loads.",
+                "bytes": df_chart_to_png_bytes(lst_hist_df, "year", "value", "Historical LST (MODIS)", kind="line", y_label="°C"),
+            },
+            {
+                "title": "Historical forest loss",
+                "description": "Annual forest loss in the surrounding landscape.",
+                "bytes": df_chart_to_png_bytes(forest_hist_df, "year", "value", "Historical Forest Loss by Year (Hansen)", kind="bar", y_label="ha"),
+            },
+            {
+                "title": "Historical water presence",
+                "description": "Share of the area with mapped surface water each year.",
+                "bytes": df_chart_to_png_bytes(water_hist_df, "year", "value", "Historical Water Presence (JRC)", kind="line", y_label="% water pixels"),
+            },
+            {
+                "title": "Current land-cover composition",
+                "description": "Current land-cover split around the selected site.",
+                "bytes": landcover_bar_to_png_bytes(lc_df),
+            },
+        ]
+
+        image_payloads = [
+            {
+                "title": "Satellite image with polygon",
+                "description": "True-colour satellite view of the selected site.",
+                "bytes": fetch_pdf_ee_image_bytes(satellite_img, ee_geom, dimensions=700),
+            },
+            {
+                "title": "NDVI image with polygon",
+                "description": "Vegetation condition around the site. Greener = stronger vegetation.",
+                "bytes": fetch_pdf_ee_image_bytes(ndvi_img, ee_geom, dimensions=700),
+            },
+            {
+                "title": "Land-cover image with polygon",
+                "description": "Current land-cover classes around the site.",
+                "bytes": fetch_pdf_ee_image_bytes(landcover_img, ee_geom, dimensions=850),
+            },
+            {
+                "title": "Vegetation change map with polygon",
+                "description": "Earlier vs later NDVI. Red = decline, green = improvement.",
+                "bytes": fetch_pdf_ee_image_bytes(veg_change_img, ee_geom, dimensions=500),
+            },
+            {
+                "title": "Forest loss map with polygon",
+                "description": "Detected forest loss in and around the selected area.",
+                "bytes": fetch_pdf_ee_image_bytes(forest_loss_img, ee_geom, dimensions=850),
+            },
+            {
+                "title": "Flood risk map with polygon",
+                "description": f"Mapped 1-in-100-year flood depth. Current value {fmt_num(metrics.get('flood_risk'), 2, ' m')}.",
+                "bytes": fetch_pdf_ee_image_bytes(flood_risk_img, ee_geom, dimensions=850),
+            },
+            {
+                "title": "Soil condition map with polygon",
+                "description": f"Soil organic carbon proxy. Current value {fmt_num(metrics.get('soil_organic_carbon'), 1)}, topsoil texture class {metrics.get('soil_texture_class')}.",
+                "bytes": fetch_pdf_ee_image_bytes(soil_condition_img, ee_geom, dimensions=850),
+            },
+            {
+                "title": "Heat stress map with polygon",
+                "description": f"Average land surface temperature. Current value {fmt_num(metrics.get('lst_mean'), 1, ' °C')}.",
+                "bytes": fetch_pdf_ee_image_bytes(heat_stress_img, ee_geom, dimensions=850),
+            },
+        ]
+
+        # PDF report
+        pdf_bytes = build_pdf_report(
+            preset=preset,
+            category=category,
+            hist_start=int(hist_start),
+            hist_end=int(hist_end),
+            metrics=metrics,
+            risk=risk,
+            image_payloads=image_payloads,
+            chart_payloads=chart_payloads,
+            automated_flags=automated_flags,
+            waste_sources=WASTE_SOURCES,
+            monthly_supply=monthly_supply,
+            continuity_risks=continuity_risks,
+            stream_mix=stream_mix,
+            district_mix=district_mix,
+            supply_headroom_data=headroom,
+        )
+
+        st.session_state["report_payload"] = {
+            "pdf_bytes": pdf_bytes,
+            "file_name": f"BLTurner_EagleNatureInsight_Report_{date.today().isoformat()}.pdf",
+        }
+
+        st.session_state["results_payload"] = {
+            "preset": preset,
+            "category": category,
+            "metrics": metrics,
+            "risk": risk,
+            "automated_flags": automated_flags,
+            "satellite_url": satellite_url,
+            "ndvi_url": ndvi_url,
+            "landcover_url": landcover_url,
+            "forest_loss_url": forest_loss_url,
+            "flood_risk_url": flood_risk_url,
+            "soil_condition_url": soil_condition_url,
+            "heat_stress_url": heat_stress_url,
+            "veg_change_url": veg_change_url,
+            "ndvi_hist_df": ndvi_hist_df,
+            "rain_hist_df": rain_hist_df,
+            "lst_hist_df": lst_hist_df,
+            "forest_hist_df": forest_hist_df,
+            "water_hist_df": water_hist_df,
+            "lc_df": lc_df,
+            "hist_start": int(hist_start),
+            "hist_end": int(hist_end),
+            "waste_df": waste_df,
+            "stream_mix": stream_mix,
+            "district_mix": district_mix,
+            "monthly_supply": monthly_supply,
+            "continuity_risks": continuity_risks,
+            "frequency_table": frequency_table,
+            "headroom": headroom,
+        }
+
+    st.success("Assessment complete. Scroll down for the full LEAP view and download the PDF report.")
+
+if st.session_state["report_payload"] is not None:
+    st.download_button(
+        label="📄 Download BL Turner PDF Report",
+        data=st.session_state["report_payload"]["pdf_bytes"],
+        file_name=st.session_state["report_payload"]["file_name"],
+        mime="application/pdf",
+        width='stretch',
+    )
+
+
+# -----------------------------------------------------------------------------
+# Results view (tabs)
+# -----------------------------------------------------------------------------
+results = st.session_state["results_payload"]
+
+if results is not None:
+    preset = results["preset"]
+    category = results["category"]
+    metrics = results["metrics"]
+    risk = results["risk"]
+    automated_flags = results.get("automated_flags", [])
+    satellite_url = results["satellite_url"]
+    ndvi_url = results["ndvi_url"]
+    landcover_url = results["landcover_url"]
+    forest_loss_url = results.get("forest_loss_url")
+    flood_risk_url = results.get("flood_risk_url")
+    soil_condition_url = results.get("soil_condition_url")
+    heat_stress_url = results.get("heat_stress_url")
+    veg_change_url = results.get("veg_change_url")
+    ndvi_hist_df = results["ndvi_hist_df"]
+    rain_hist_df = results["rain_hist_df"]
+    lst_hist_df = results["lst_hist_df"]
+    forest_hist_df = results["forest_hist_df"]
+    water_hist_df = results["water_hist_df"]
+    lc_df = results["lc_df"]
+    hist_start = results.get("hist_start")
+    hist_end = results.get("hist_end")
+    waste_df = results["waste_df"]
+    stream_mix = results["stream_mix"]
+    district_mix = results["district_mix"]
+    monthly_supply = results["monthly_supply"]
+    continuity_risks = results["continuity_risks"]
+    frequency_table = results["frequency_table"]
+    headroom = results["headroom"]
+
+    leap_story = plain_language_leap_summary(preset, metrics, None)
+
+    tab1, tab_waste, tab2, tab3, tab4, tab5, tab_tnfd, tab_npi, tab6, tab7, tab8 = st.tabs([
+        "LEAP · Locate",
+        "🌱 Waste sourcing",
+        "LEAP · Evaluate",
+        "LEAP · Assess",
+        "LEAP · Prepare",
+        "Risk flags",
+        "TNFD core metrics",
+        "Nature Positive (NPI)",
+        "Maps",
+        "Trends",
+        "Data",
+    ])
+
+    # ========================= LEAP · Locate =========================
+    with tab1:
+        st.markdown("## LEAP · Locate")
+        st.write(
+            "The BL Turner AD plant sits on a 1.5-ha private site (Portion 159 of New Guelderland, "
+            "KwaDukuza) close to a landfill, diverting organic waste into fertiliser and biogas. "
+            "This screen combines the site itself with the wider supply landscape across eThekwini, "
+            "iLembe, uMgungundlovu and Western KZN."
+        )
+        st.caption(results["metrics"].get("analysis_context_method", ""))
+
+        display_metric_cards([
+            {"label": "Selected area", "value": fmt_num(metrics.get("area_ha"), 2, " ha"),
+             "subtext": "Exact polygon used for screening", "raw": metrics.get("area_ha")},
+            {"label": "Tree cover (context)", "value": fmt_num(metrics.get("tree_cover_context_pct", metrics.get("tree_pct")), 1, "%"),
+             "subtext": "Wider landscape context", "raw": metrics.get("tree_cover_context_pct", metrics.get("tree_pct"))},
+            {"label": "Surface water context", "value": fmt_num(metrics.get("water_context_signal_pct", metrics.get("water_occ")), 1),
+             "subtext": "Wider landscape context", "raw": metrics.get("water_context_signal_pct", metrics.get("water_occ"))},
+            {"label": "Built-up", "value": fmt_num(metrics.get("built_pct"), 1, "%"),
+             "subtext": "Share of the selected area", "raw": metrics.get("built_pct")},
+            {"label": "Cropland", "value": fmt_num(metrics.get("cropland_pct"), 1, "%"),
+             "subtext": "Share of the selected area", "raw": metrics.get("cropland_pct")},
+            {"label": "Flood hazard", "value": fmt_num(metrics.get("flood_risk"), 2, " m"),
+             "subtext": "Mapped 1-in-100-year flood depth", "raw": metrics.get("flood_risk")},
+        ], per_row=3)
+
+        st.markdown("### LEAP · Locate narrative")
+        for line in leap_story["Locate"]:
+            st.write(f"- {line}")
+
+        if not lc_df.empty:
+            st.markdown("### Current land-cover composition")
+            st.plotly_chart(build_landcover_bar(lc_df), width='stretch', key="locate_lc_bar")
+
+        render_feedback_widget({"tab": "locate", "preset": preset})
+
+    # ========================= Waste sourcing (BL Turner differentiator) =========================
+    with tab_waste:
+        st.markdown("## 🌱 Waste sourcing intelligence")
+        st.write(
+            "This view addresses the four questions BL Turner asked directly: **where the waste "
+            "comes from**, **how often**, **how much**, and **how continuity is maintained** "
+            "through seasonal variability. Source volumes below are screening estimates — "
+            "replace them with contracted tonnages as they are confirmed."
+        )
+
+        # Supply headroom summary
+        st.markdown("### Supply vs nameplate capacity")
+        display_metric_cards([
+            {"label": "Total potential supply",
+             "value": fmt_num(headroom.get("total_supply_tpd"), 1, " t/day"),
+             "subtext": "Sum of all modelled source nodes",
+             "raw": headroom.get("total_supply_tpd")},
+            {"label": "Nameplate capacity",
+             "value": fmt_num(headroom.get("nameplate_tpd"), 0, " t/day"),
+             "subtext": "100 t/day AD plant design",
+             "raw": headroom.get("nameplate_tpd")},
+            {"label": "Headroom / shortfall",
+             "value": fmt_num(headroom.get("headroom_tpd"), 1, " t/day"),
+             "subtext": "Positive = headroom, negative = shortfall",
+             "raw": headroom.get("headroom_tpd")},
+            {"label": "Utilisation",
+             "value": fmt_num(headroom.get("utilisation_pct"), 1, "%"),
+             "subtext": "Estimated capacity utilisation",
+             "raw": headroom.get("utilisation_pct")},
+        ], per_row=2)
+
+        # Waste sources table
+        st.markdown("### Waste source nodes")
+        st.caption(
+            "Each row is a feedstock source currently in scope for BL Turner. Tonnages are "
+            "screening estimates only and will be refined as contracts are signed."
+        )
+        st.dataframe(_safe_dataframe_for_display(waste_df), width='stretch', hide_index=True)
+
+        # Collection frequency table
+        st.markdown("### Collection frequency by source")
+        freq_df = pd.DataFrame(frequency_table)
+        st.dataframe(_safe_dataframe_for_display(freq_df), width='stretch', hide_index=True)
+
+        # Stream mix and district mix
+        mix_col1, mix_col2 = st.columns(2)
+        with mix_col1:
+            st.markdown("### Mix by waste stream")
+            fig_stream = stream_mix_to_plotly_pie()
+            if fig_stream:
+                st.plotly_chart(fig_stream, width='stretch', key="waste_stream_pie")
+        with mix_col2:
+            st.markdown("### Mix by district")
+            fig_district = district_mix_to_plotly_pie()
+            if fig_district:
+                st.plotly_chart(fig_district, width='stretch', key="waste_district_pie")
+
+        # Seasonal profile
+        st.markdown("### Seasonal supply profile")
+        st.caption(
+            "Projected monthly supply based on seasonal multipliers across each source "
+            "(e.g. summer tourism peak in Ballito/Umhlali, harvest peaks in Western KZN agri)."
+        )
+        fig_seasonal = seasonal_profile_to_plotly_bar()
+        if fig_seasonal:
+            st.plotly_chart(fig_seasonal, width='stretch', key="waste_seasonal_bar")
+
+        # Continuity risks
+        st.markdown("### Continuity-of-supply risks")
+        st.caption(
+            "These are the risks most likely to interrupt or compress the 100 t/day supply, "
+            "with the proposed mitigation for each."
+        )
+        cr_df = pd.DataFrame(continuity_risks)
+        if not cr_df.empty:
+            cr_df_display = cr_df.rename(columns={
+                "level": "Level",
+                "risk": "Risk",
+                "indicator": "Indicator",
+                "meaning": "What it means",
+                "mitigation": "Mitigation",
+            })
+            available_cols = [c for c in ["Level", "Risk", "Indicator", "What it means", "Mitigation"]
+                              if c in cr_df_display.columns]
+            st.dataframe(_safe_dataframe_for_display(cr_df_display[available_cols]),
+                         width='stretch', hide_index=True)
+
+        render_feedback_widget({"tab": "waste_sourcing", "preset": preset})
+
+    # ========================= LEAP · Evaluate =========================
+    with tab2:
+        st.markdown("## LEAP · Evaluate")
+        for line in leap_story["Evaluate"]:
+            st.write(f"- {line}")
+
+        st.markdown("### Environmental conditions at the plant")
+        display_metric_cards([
+            {"label": "Rainfall anomaly",
+             "value": fmt_num(metrics.get("rain_anom_pct"), 1, "%"),
+             "subtext": "vs 1981–2010", "raw": metrics.get("rain_anom_pct")},
+            {"label": "Heat context (LST)",
+             "value": fmt_num(metrics.get("lst_mean"), 1, " °C"),
+             "subtext": "Recent mean surface temperature",
+             "raw": metrics.get("lst_mean")},
+            {"label": "Current NDVI",
+             "value": fmt_num(metrics.get("ndvi_current"), 3),
+             "subtext": "Vegetation condition around plant",
+             "raw": metrics.get("ndvi_current")},
+            {"label": "Soil moisture",
+             "value": fmt_num(metrics.get("soil_moisture"), 3),
+             "subtext": "SMAP surface soil moisture",
+             "raw": metrics.get("soil_moisture")},
+            {"label": "Evapotranspiration",
+             "value": fmt_num(metrics.get("evapotranspiration"), 1),
+             "subtext": "Water loss context",
+             "raw": metrics.get("evapotranspiration")},
+            {"label": "Flood hazard",
+             "value": fmt_num(metrics.get("flood_risk"), 2, " m"),
+             "subtext": "Mapped 1-in-100-year flood depth",
+             "raw": metrics.get("flood_risk")},
+        ], per_row=3)
+
+        st.markdown("### TNFD-style dependencies (what the AD plant relies on)")
+        dependencies = risk.get("dependencies", [])
+        if dependencies:
+            for dep in dependencies:
+                with st.container():
+                    st.markdown(f"**{dep.get('service', 'Dependency')}**")
+                    st.write(dep.get("why_it_matters", ""))
+        else:
+            st.info("No dependency breakdown was returned by the scoring module.")
+
+        render_feedback_widget({"tab": "evaluate", "preset": preset})
+
+    # ========================= LEAP · Assess =========================
+    with tab3:
+        st.markdown("## LEAP · Assess")
+        for line in leap_story["Assess"]:
+            st.write(f"- {line}")
+
+        st.markdown("### Portfolio of indicators (no single score)")
+        st.caption(
+            "TNFD recommends reporting individual indicators rather than aggregating into one "
+            "number. Each indicator below has its own status, meaning and suggested response."
+        )
+        portfolio = risk.get("portfolio") or []
+        portfolio_summary = risk.get("portfolio_summary") or {}
+
+        sc1, sc2, sc3, sc4 = st.columns(4)
+        sc1.metric("Favourable", portfolio_summary.get("Favourable", 0))
+        sc2.metric("Watch", portfolio_summary.get("Watch", 0))
+        sc3.metric("Warning", portfolio_summary.get("Warning", 0))
+        sc4.metric("Not available", portfolio_summary.get("Not available", 0))
+
+        port_df = pd.DataFrame(portfolio)
+        if not port_df.empty:
+            port_df = port_df.rename(columns={
+                "name": "Indicator",
+                "status": "Status",
+                "plain_meaning": "What this means",
+                "response": "Suggested response",
+            })
+            available_cols = [c for c in ["Indicator", "Status", "What this means", "Suggested response"]
+                              if c in port_df.columns]
+            st.dataframe(_safe_dataframe_for_display(port_df[available_cols]),
+                         width='stretch', hide_index=True)
+
+        st.markdown("### Indicative monetary exposures (units of currency)")
+        st.caption(
+            "These cards translate nature conditions into rough business-cost signals. They "
+            "are screening figures, not quotes. The landfill-diversion card highlights a "
+            "positive environmental outcome BL Turner can claim alongside risks."
+        )
+        monetary = risk.get("monetary_exposures", [])
+        if monetary:
+            for item in monetary:
+                with st.container():
+                    st.markdown(f"**{item.get('label', 'Exposure')}**")
+                    st.write(item.get("headline", ""))
+                    st.caption(item.get("assumption", ""))
+        else:
+            st.info("No monetary exposure cards are available for this run.")
+
+        render_feedback_widget({"tab": "assess", "preset": preset})
+
+    # ========================= LEAP · Prepare =========================
+    with tab4:
+        st.markdown("## LEAP · Prepare")
+        for line in leap_story["Prepare"]:
+            st.write(f"- {line}")
+        st.markdown("### Recommended next actions")
+        for rec in risk.get("recs", []):
+            st.write(f"- {rec}")
+
+        st.markdown("### Suggested review cadence")
+        st.write(
+            "- **Monthly**: feedstock tonnage actuals vs projections; update seasonal mix.\n"
+            "- **Quarterly**: environmental screening refresh (NDVI, heat, water); review continuity risks.\n"
+            "- **Annually**: full TNFD disclosure refresh; update avoided-methane calculation; funder and municipal reporting.\n"
+            "- **After major weather events**: flood, drought or heatwave triggers an ad-hoc review.\n"
+            "- **Before any capacity expansion or new contract**: rerun this assessment on the new footprint."
+        )
+
+        st.markdown("### How BL Turner can monetise this")
+        st.write(
+            "- Diverted tonnage and avoided methane can anchor a **voluntary carbon** narrative for local off-take buyers.\n"
+            "- Feedstock continuity evidence supports **municipal procurement** conversations in eThekwini, iLembe and uMgungundlovu.\n"
+            "- Digestate quality and off-take area mapping support **fertiliser contracts** with KZN sugarcane and mixed-cropping farms.\n"
+            "- The dashboard itself is a **funder-ready exhibit** for DBSA / IDC / commercial lenders assessing nature-related risk."
+        )
+
+        render_feedback_widget({"tab": "prepare", "preset": preset})
+
+    # ========================= Risk flags =========================
+    with tab5:
+        st.markdown("## Automated risk flags")
+        st.caption(
+            "These flags combine environmental signals at the plant with feedstock continuity "
+            "risks derived from the waste-sourcing analysis."
+        )
+        flags_df = risk_flags_to_dataframe(automated_flags)
+        st.dataframe(_safe_dataframe_for_display(flags_df), width='stretch', hide_index=True)
+
+    # ========================= TNFD core metrics =========================
+    with tab_tnfd:
+        st.markdown("## TNFD core metrics")
+        st.caption(
+            "This table maps every result the platform produces to the TNFD core metrics. "
+            "Where a metric is a placeholder or needs data directly from BL Turner, it is "
+            "labelled honestly rather than silently skipped (TNFD comply-or-explain approach)."
+        )
+        tnfd_rows = build_tnfd_core_metrics_rows(metrics, None)
+        tnfd_df = pd.DataFrame(tnfd_rows).rename(columns={
+            "metric_id": "Metric",
+            "metric_name": "Indicator",
+            "what_it_means": "What it means",
+            "what_we_report": "What we report here",
+            "status": "Status",
+        })
+        available_cols = [c for c in ["Metric", "Indicator", "What it means", "What we report here", "Status"]
+                          if c in tnfd_df.columns]
+        st.dataframe(_safe_dataframe_for_display(tnfd_df[available_cols]),
+                     width='stretch', hide_index=True)
+
+    # ========================= NPI =========================
+    with tab_npi:
+        st.markdown("## Nature Positive Initiative — State of Nature indicators")
+        st.caption(
+            "The four indicators the Nature Positive Initiative recommends for measuring the "
+            "state of nature around a business: ecosystem extent, condition, intactness and "
+            "species extinction risk."
+        )
+        npi_rows = build_npi_state_of_nature_rows(metrics, None)
+        npi_df = pd.DataFrame(npi_rows).rename(columns={
+            "indicator": "Indicator",
+            "what_it_means": "What it means",
+            "what_we_report": "What we report here",
+            "maturity": "Maturity",
+        })
+        available_cols = [c for c in ["Indicator", "What it means", "What we report here", "Maturity"]
+                          if c in npi_df.columns]
+        st.dataframe(_safe_dataframe_for_display(npi_df[available_cols]),
+                     width='stretch', hide_index=True)
+
+    # ========================= Maps =========================
+    with tab6:
+        st.markdown("## Map views")
+        st.write("**NDVI image:** greener = stronger vegetation; redder = weaker vegetation.")
+        st.write("**Vegetation change map:** green = improvement; red = decline.")
+        st.write("**Land-cover image:** classes include tree cover, cropland, built-up land, water.")
+        st.write("**Forest loss map:** highlights detected forest loss.")
+
+        img1, img2 = st.columns(2)
+        with img1:
+            if satellite_url:
+                st.image(satellite_url, caption="Satellite image with polygon", width='stretch')
+            if ndvi_url:
+                st.image(ndvi_url, caption="NDVI image with polygon", width='stretch')
+            if veg_change_url:
+                st.image(veg_change_url, caption="Vegetation change map with polygon", width='stretch')
+            if flood_risk_url:
+                st.image(flood_risk_url, caption=f"Flood risk map: {fmt_num(metrics.get('flood_risk'), 2, ' m')}", width='stretch')
+        with img2:
+            if landcover_url:
+                st.image(landcover_url, caption="Land-cover image with polygon", width='stretch')
+            if forest_loss_url:
+                st.image(forest_loss_url, caption="Forest loss map with polygon", width='stretch')
+            if soil_condition_url:
+                st.image(soil_condition_url,
+                         caption=f"Soil condition: SOC {fmt_num(metrics.get('soil_organic_carbon'), 1)}, texture class {metrics.get('soil_texture_class')}",
+                         width='stretch')
+            if heat_stress_url:
+                st.image(heat_stress_url,
+                         caption=f"Heat stress: {fmt_num(metrics.get('lst_mean'), 1, ' °C')}",
+                         width='stretch')
+
+    # ========================= Trends =========================
+    with tab7:
+        st.markdown("## Historical trends")
+        if not ndvi_hist_df.empty:
+            fig = px.line(ndvi_hist_df, x="year", y="value", title="Historical NDVI (Landsat)")
+            st.plotly_chart(fig, width='stretch', key="trend_ndvi")
+        if not rain_hist_df.empty:
+            fig = px.line(rain_hist_df, x="year", y="value", title="Historical Rainfall (CHIRPS)")
+            st.plotly_chart(fig, width='stretch', key="trend_rain")
+        if not lst_hist_df.empty:
+            fig = px.line(lst_hist_df, x="year", y="value", title="Historical Land Surface Temperature (MODIS)")
+            st.plotly_chart(fig, width='stretch', key="trend_lst")
+        if not forest_hist_df.empty:
+            fig = px.bar(forest_hist_df, x="year", y="value", title="Historical Forest Loss by Year (Hansen)")
+            st.plotly_chart(fig, width='stretch', key="trend_forest")
+        if not water_hist_df.empty:
+            fig = px.line(water_hist_df, x="year", y="value", title="Historical Water Presence (JRC)")
+            st.plotly_chart(fig, width='stretch', key="trend_water")
+
+    # ========================= Data =========================
+    with tab8:
+        st.markdown("## Supporting data")
+        detail_rows = [
+            ("Business preset", preset),
+            ("Business category", category),
+            ("Assessment period", f"{hist_start} to {hist_end}"),
+            ("Area (ha)", metrics.get("area_ha")),
+            ("Current NDVI", metrics.get("ndvi_current")),
+            ("Tree cover context (%)", metrics.get("tree_cover_context_pct") or metrics.get("tree_pct")),
+            ("Cropland (%)", metrics.get("cropland_pct")),
+            ("Built-up (%)", metrics.get("built_pct")),
+            ("Surface water context", metrics.get("water_context_signal_pct") or metrics.get("water_occ")),
+            ("Recent LST mean (°C)", metrics.get("lst_mean")),
+            ("Rainfall anomaly (%)", metrics.get("rain_anom_pct")),
+            ("Soil moisture", metrics.get("soil_moisture")),
+            ("Evapotranspiration", metrics.get("evapotranspiration")),
+            ("Soil organic carbon", metrics.get("soil_organic_carbon")),
+            ("Soil texture class", metrics.get("soil_texture_class")),
+            ("Flood risk (m)", metrics.get("flood_risk")),
+            ("Fire risk", metrics.get("fire_risk")),
+            ("Total feedstock supply (t/day)", headroom.get("total_supply_tpd")),
+            ("Nameplate capacity (t/day)", headroom.get("nameplate_tpd")),
+            ("Headroom / shortfall (t/day)", headroom.get("headroom_tpd")),
+            ("Utilisation (%)", headroom.get("utilisation_pct")),
+        ]
+        detail_df = pd.DataFrame(detail_rows, columns=["Metric", "Value"])
+        detail_df = detail_df[detail_df["Value"].apply(has_data)].copy()
+        detail_df["Value"] = detail_df["Value"].apply(str)
+        st.dataframe(_safe_dataframe_for_display(detail_df), width='stretch', hide_index=True)
+
+        if not lc_df.empty:
+            fig = build_landcover_bar(lc_df)
+            st.plotly_chart(fig, width='stretch', key="detail_landcover_bar")
