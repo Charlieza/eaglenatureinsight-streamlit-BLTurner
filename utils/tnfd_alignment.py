@@ -1,23 +1,9 @@
+
 """
-TNFD and Nature Positive Initiative (NPI) alignment content for
-BL Turner Group's organic waste-to-fertiliser and biogas facility.
-
-Translates screening indicators into the TNFD core-metrics vocabulary
-and the NPI State of Nature indicators the Challenge rubric asked for,
-with honesty about what is a direct measurement, a proxy, or a
-"comply or explain" placeholder (TNFD language).
-
-References:
- - TNFD (Sept 2023) Recommendations, Annex 1: Core global disclosure
-   metrics (14 core indicators across dependencies/impacts and
-   risks/opportunities).
- - Nature Positive Initiative State of Nature metrics: ecosystem
-   extent (IND1), ecosystem condition (IND2), landscape intactness
-   (IND3), species extinction risk (IND4).
+TNFD and Nature Positive Initiative alignment content for BL Turner,
+extended to incorporate Map of Life where available.
 """
-
 from __future__ import annotations
-
 from typing import Any, Dict, List, Optional
 
 
@@ -33,17 +19,23 @@ def _fmt(value: Any, digits: int = 2, suffix: str = "") -> str:
     return f"{f:.{digits}f}{suffix}"
 
 
-# -----------------------------------------------------------------------------
-# TNFD Annex 1: Core global disclosure metrics mapping
-# -----------------------------------------------------------------------------
-
-def build_tnfd_core_metrics_rows(metrics: Dict[str, Any]) -> List[Dict[str, str]]:
-    """
-    Returns a list of rows, each one row of the TNFD Annex 1 Core Global
-    Metrics dashboard as implemented by this platform for the BL Turner
-    organic waste / AD / biogas / digestate project.
-    """
+def build_tnfd_core_metrics_rows(metrics: Dict[str, Any], mol_insights: Optional[Dict[str, Any]] = None) -> List[Dict[str, str]]:
     m = metrics
+    species_status = "Roadmap item (Map of Life integration)"
+    species_report = (
+        "Species-risk context for the KZN coastal belt is provided qualitatively "
+        "(grassland and forest-edge fauna, wetland-dependent species). A Map of Life "
+        "species layer is recommended as a follow-on enhancement for the KwaDukuza site."
+    )
+    if mol_insights:
+        species_status = "Map of Life screening layer"
+        species_report = (
+            f"Map of Life indicates {mol_insights.get('species_total', 'Not measured yet')} expected species "
+            f"for {mol_insights.get('site_name', 'the mapped area')}, including "
+            f"{mol_insights.get('threatened_total', 'Not measured yet')} threatened or near-threatened species. "
+            f"Latest SHI: {_fmt(mol_insights.get('latest_shi'), 1)}; change since 2001: "
+            f"{_fmt(mol_insights.get('shi_change_total'), 2)}."
+        )
 
     return [
         {
@@ -51,14 +43,14 @@ def build_tnfd_core_metrics_rows(metrics: Dict[str, Any]) -> List[Dict[str, str]
             "metric_name": "Total spatial footprint",
             "what_it_means": "How much surface area the project controls or manages.",
             "what_we_report": (
-                f"{_fmt(m.get('area_ha'), 2, ' ha')} plant-site footprint (Portion 159 of "
-                f"New Guelderland, KwaDukuza, nominal 1.5 ha / 15,000 m²)."
+                f"{_fmt(m.get('area_ha'), 2, ' ha')} plant-site footprint "
+                f"(Portion 159 of New Guelderland, KwaDukuza, nominal 1.5 ha / 15,000 m²)."
             ),
             "status": "Direct measurement" if m.get("area_ha") else "Not available",
         },
         {
             "metric_id": "C1.1",
-            "metric_name": "Extent of land / freshwater / ocean-use change",
+            "metric_name": "Extent of land / freshwater / ecosystem-use change",
             "what_it_means": "How much natural ecosystem has been converted, and by what activity.",
             "what_we_report": (
                 f"Current landscape mix around the plant: tree cover "
@@ -71,32 +63,22 @@ def build_tnfd_core_metrics_rows(metrics: Dict[str, Any]) -> List[Dict[str, str]
         },
         {
             "metric_id": "C2.0–C2.4",
-            "metric_name": "Pollutants, waste, plastics, air pollutants",
-            "what_it_means": (
-                "Pollution released into soil, water and air; waste "
-                "generated. For an AD plant this includes digestate liquor, "
-                "odour, and CHP exhaust."
-            ),
+            "metric_name": "Pollutants, waste and air emissions",
+            "what_it_means": "Pollution released into soil, water and air; waste generated.",
             "what_we_report": (
-                "Not computed from satellite data. Comes from the plant's "
-                "environmental monitoring (CHP stack, digestate sampling, "
-                "odour boundary monitoring, noise)."
+                "Not computed from satellite data. For BL Turner this comes from plant environmental "
+                "monitoring such as CHP stack, digestate sampling, odour boundary monitoring and noise."
             ),
             "status": "Comply or explain: requires BL Turner operational data",
         },
         {
             "metric_id": "C2.5",
             "metric_name": "GHG emissions",
-            "what_it_means": (
-                "Scope 1, 2 and 3 greenhouse gas emissions. For this "
-                "project, the key number is avoided methane emissions "
-                "from landfill diversion."
-            ),
+            "what_it_means": "Greenhouse gas emissions and avoided emissions.",
             "what_we_report": (
-                "Indicative landfill-diversion avoided emissions: ~9,125 tCO₂e/year "
-                "at nameplate 100 t/day throughput (screening assumption, ~0.25 tCO₂e "
-                "avoided per tonne diverted, net of process emissions). Final figure "
-                "needs a formal GHG methodology (e.g. Verra VM0041 or a local equivalent)."
+                "Indicative landfill-diversion avoided emissions: ~9,125 tCO₂e/year at nameplate "
+                "100 t/day throughput (screening assumption, ~0.25 tCO₂e avoided per tonne diverted, "
+                "net of process emissions). Final figure needs a formal GHG methodology."
             ),
             "status": "Indicative screening figure",
         },
@@ -114,61 +96,22 @@ def build_tnfd_core_metrics_rows(metrics: Dict[str, Any]) -> List[Dict[str, str]
             "status": "Context proxy (withdrawal volumes need plant data)",
         },
         {
-            "metric_id": "C3.1",
-            "metric_name": "High-risk natural commodities sourced",
-            "what_it_means": "Tonnes of commodities sourced that are known to drive nature loss.",
-            "what_we_report": (
-                "Not applicable in the usual sense. The 'commodity' sourced here is organic waste, "
-                "which is a waste stream rather than a primary commodity. Worth disclosing the "
-                "100 t/day waste feedstock mix (municipal fruit/veg, restaurant food waste, "
-                "distribution-centre expired food, abattoir meat and blood) as a sourcing disclosure."
-            ),
-            "status": "Adapted for waste feedstock reporting",
-        },
-        {
-            "metric_id": "C4.0",
-            "metric_name": "Invasive alien species: management measures",
-            "what_it_means": "Whether the business has measures to prevent the unintentional spread of invasive species.",
-            "what_we_report": (
-                "Relevant for digestate distribution to KZN farmlands — weed seeds in feedstock "
-                "and digestate should be managed via pasteurisation / thermophilic digestion and "
-                "recipient guidance. Tracked via BL Turner process records."
-            ),
-            "status": "Comply or explain: TNFD placeholder indicator",
-        },
-        {
             "metric_id": "C5.0",
             "metric_name": "Ecosystem condition",
-            "what_it_means": "How healthy the ecosystem is, compared to its natural reference state.",
+            "what_it_means": "How healthy or degraded the ecosystem is compared to its natural reference state.",
             "what_we_report": (
                 f"NDVI now: {_fmt(m.get('ndvi_current'), 3)}. NDVI trend over time: {_fmt(m.get('ndvi_trend'), 3)}. "
                 f"Tree cover: {_fmt(m.get('tree_cover_context_pct') or m.get('tree_pct'), 1, '%')}. "
-                "Used as a proxy for condition pending dedicated reference-state data."
+                f"Map of Life SHI: {_fmt(mol_insights.get('latest_shi'), 1) if mol_insights else 'Not measured yet'}."
             ),
-            "status": "Proxy: TNFD placeholder C5.0",
+            "status": "Proxy",
         },
         {
             "metric_id": "C5.1",
             "metric_name": "Species extinction risk",
-            "what_it_means": "Whether species expected at the site are at higher risk of disappearing.",
-            "what_we_report": (
-                "Species-risk context for the KZN coastal belt is provided qualitatively "
-                "(grassland and forest-edge fauna, wetland-dependent species). A Map of Life "
-                "species layer is recommended as a follow-on enhancement for the KwaDukuza site."
-            ),
-            "status": "Roadmap item (Map of Life integration)",
-        },
-        {
-            "metric_id": "C6.x",
-            "metric_name": "Nature-related transition risk exposure",
-            "what_it_means": "Financial exposure to policy or market changes driven by nature concerns.",
-            "what_we_report": (
-                "The business is directly aligned with nature-positive transition — it profits from "
-                "landfill-diversion regulation, organic-waste ban trends, and the growing organic "
-                "fertiliser market. Transition risk is low on the upside; on the downside, changes "
-                "in municipal waste contracts and feed-in tariffs for biogas should be monitored."
-            ),
-            "status": "Qualitative disclosure",
+            "what_it_means": "Whether species expected at the site face higher extinction risk.",
+            "what_we_report": species_report,
+            "status": species_status,
         },
         {
             "metric_id": "C7.0–C7.1",
@@ -176,22 +119,33 @@ def build_tnfd_core_metrics_rows(metrics: Dict[str, Any]) -> List[Dict[str, str]
             "what_it_means": "Physical exposure to heat, flood, fire and drought, and opportunity indicators.",
             "what_we_report": (
                 f"Heat: {_fmt(m.get('lst_mean'), 1, ' °C')}. "
-                f"Flood 1-in-100 depth: {_fmt(m.get('flood_risk'), 2, ' m')}. "
+                f"Flood depth: {_fmt(m.get('flood_risk'), 2, ' m')}. "
                 f"Fire signal: {_fmt(m.get('fire_risk'), 1)}. "
                 f"PDSI drought: {_fmt(m.get('pdsi'), 1)}. "
-                "Opportunity: organic-fertiliser receiving areas with declining soil condition."
+                "Opportunity: digestate use in receiving landscapes with weaker soil condition."
             ),
             "status": "Direct measurement / proxy",
         },
     ]
 
 
-# -----------------------------------------------------------------------------
-# Nature Positive Initiative — State of Nature indicators
-# -----------------------------------------------------------------------------
-
-def build_npi_state_of_nature_rows(metrics: Dict[str, Any]) -> List[Dict[str, str]]:
+def build_npi_state_of_nature_rows(metrics: Dict[str, Any], mol_insights: Optional[Dict[str, Any]] = None) -> List[Dict[str, str]]:
     m = metrics
+    ind4_report = (
+        "Not directly computed in this version. KZN coastal belt supports species groups "
+        "including wetland-associated birds and forest-edge fauna that benefit from reduced "
+        "landfill leachate and odour pressure. A Map of Life integration is the intended next step."
+    )
+    ind4_maturity = "Future extension"
+    if mol_insights:
+        ind4_report = (
+            f"Map of Life indicates {mol_insights.get('species_total', 'Not measured yet')} expected species "
+            f"for {mol_insights.get('site_name', 'the mapped area')}, including "
+            f"{mol_insights.get('threatened_total', 'Not measured yet')} threatened or near-threatened species. "
+            f"Latest SHI {_fmt(mol_insights.get('latest_shi'), 1)}; SHI change since 2001 "
+            f"{_fmt(mol_insights.get('shi_change_total'), 2)}."
+        )
+        ind4_maturity = "Available (Map of Life screening layer)"
 
     return [
         {
@@ -212,8 +166,7 @@ def build_npi_state_of_nature_rows(metrics: Dict[str, Any]) -> List[Dict[str, st
                 f"Current NDVI: {_fmt(m.get('ndvi_current'), 3)}. "
                 f"NDVI trend: {_fmt(m.get('ndvi_trend'), 3)}. "
                 f"Soil organic carbon proxy: {_fmt(m.get('soil_organic_carbon'), 1)}. "
-                "Digestate off-take to KZN farms is expected to improve ecosystem condition on "
-                "receiving fields over time by raising soil carbon and reducing synthetic inputs."
+                f"Map of Life SHI: {_fmt(mol_insights.get('latest_shi'), 1) if mol_insights else 'Not measured yet'}."
             ),
             "maturity": "Proxy",
         },
@@ -223,36 +176,25 @@ def build_npi_state_of_nature_rows(metrics: Dict[str, Any]) -> List[Dict[str, st
             "what_we_report": (
                 f"Forest loss in the landscape: {_fmt(m.get('forest_loss_pct'), 1, '%')}. "
                 f"Water seasonality: {_fmt(m.get('water_seasonality'), 1, ' months of water')}. "
-                f"Built-up share: {_fmt(m.get('built_pct'), 1, '%')}. "
-                "Landfill diversion contributes to landscape intactness by slowing landfill expansion."
+                f"Built-up share: {_fmt(m.get('built_pct'), 1, '%')}."
             ),
             "maturity": "Proxy",
         },
         {
             "indicator": "IND4: Species extinction risk",
             "what_it_means": "Whether species expected at the site face higher extinction risk.",
-            "what_we_report": (
-                "Not directly computed in this version. KZN coastal belt supports species groups "
-                "including wetland-associated birds and forest-edge fauna that benefit from reduced "
-                "landfill leachate and odour pressure. A Map of Life integration is the intended next step."
-            ),
-            "maturity": "Future extension",
+            "what_we_report": ind4_report,
+            "maturity": ind4_maturity,
         },
     ]
 
 
-# -----------------------------------------------------------------------------
-# LEAP phase summaries written in plain language
-# -----------------------------------------------------------------------------
-
 def plain_language_leap_summary(
     preset: str,
     metrics: Dict[str, Any],
+    mol_insights: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, List[str]]:
-    """Return a dict keyed by LEAP phase, each value a short list of
-    high-school-level sentences for the BL Turner organic waste project."""
     m = metrics
-
     rain = m.get("rain_anom_pct")
     lst = m.get("lst_mean")
     tree = m.get("tree_cover_context_pct") or m.get("tree_pct")
@@ -264,99 +206,97 @@ def plain_language_leap_summary(
         f"These results reflect satellite and environmental signals for {preset} and its surrounding landscape.",
         "The Locate phase defines where the plant meets nature, and where the organic waste comes from. "
         "The main processing site is Portion 159 of New Guelderland, KwaDukuza. Waste is collected from "
-        "eThekwini municipality (restaurants, commercial kitchens, distribution centres) and the iLembe "
-        "district. Digestate fertiliser is distributed to KZN farmlands.",
+        "eThekwini municipality, the iLembe district, and the uMgungundlovu abattoir corridor.",
     ]
     if tree is not None:
         locate.append(
-            f"Around the plant site, about {float(tree):.1f}% of the surrounding landscape carries trees or "
-            "similar semi-natural cover. That matters because this buffer helps disperse odour, supports "
-            "wildlife, and softens the visual impact of an industrial facility."
+            f"Around the site, about {float(tree):.1f}% of the surrounding landscape carries trees or "
+            "similar semi-natural cover. That matters because buffers help with runoff control, habitat, "
+            "visual impact and the social licence to operate."
+        )
+    if mol_insights:
+        locate.append(
+            f"Map of Life adds species context for {mol_insights.get('site_name', 'this zone')}: "
+            f"{mol_insights.get('species_total', 'Not measured yet')} expected species, including "
+            f"{mol_insights.get('threatened_total', 'Not measured yet')} threatened or near-threatened."
         )
 
     evaluate = [
-        "The Evaluate phase looks at what the business depends on from nature and where operations may place "
-        "pressure on natural systems.",
-        "The plant depends on reliable organic-waste feedstock, process water, stable electricity for CHP "
-        "startup, and flood/heat resilience. Off-site, the digestate product depends on KZN farms that can "
-        "put organic fertiliser to good use.",
+        "The Evaluate phase looks at what the business depends on from nature and where operations may place pressure on natural systems.",
+        "The plant depends on reliable organic-waste feedstock, process water, stable electricity for CHP startup, and flood and heat resilience. "
+        "Off-site, the digestate product depends on receiving farms that can use organic fertiliser well.",
     ]
-    if rain is not None:
-        try:
+    try:
+        if rain is not None:
             f = float(rain)
             if f < -10:
                 evaluate.append(
-                    f"Rain is running about {abs(f):.0f}% below the long-term average. That squeezes process "
-                    "water and slurry preparation, and raises municipal water cost. Plan for water recycling "
-                    "and storage."
+                    f"Rain is running about {abs(f):.0f}% below the long-term average. That squeezes process water "
+                    "and raises the importance of storage and recycling."
                 )
             elif f > 15:
                 evaluate.append(
-                    f"Rain is about {f:.0f}% above the long-term average. Check stormwater around digester "
-                    "tanks and feedstock reception — KZN has recent history of severe floods."
+                    f"Rain is about {f:.0f}% above the long-term average. Check stormwater around the site and access routes."
                 )
-            else:
-                evaluate.append("Rainfall is broadly close to the long-term average, so rainfall alone is not the main story here.")
-        except Exception:
-            pass
-    if ndvi_trend is not None:
-        try:
+    except Exception:
+        pass
+    try:
+        if ndvi_trend is not None:
             t = float(ndvi_trend)
             if t < -0.02:
                 evaluate.append(
-                    "Vegetation in the landscape is trending downward. For the digestate side of the "
-                    "business, that is both a risk (weaker landscape resilience) and an opportunity (farms "
-                    "in need of organic fertiliser to rebuild soil carbon)."
+                    "Vegetation in the landscape is trending downward. That can point to a wider landscape under pressure and makes buffers and receiving-land management more important."
                 )
             elif t > 0.02:
                 evaluate.append(
-                    "Vegetation in the landscape is trending upward. That suggests the wider landscape "
-                    "around the plant is holding up, and gives the project a stable environmental setting."
+                    "Vegetation in the landscape is trending upward, which suggests the wider setting is holding up relatively well."
                 )
-        except Exception:
-            pass
+    except Exception:
+        pass
+    if mol_insights:
+        evaluate.append(
+            f"The latest Map of Life habitat score is {_fmt(mol_insights.get('latest_shi'), 1)} with change since 2001 of "
+            f"{_fmt(mol_insights.get('shi_change_total'), 2)}. This adds a species and habitat suitability signal to the land, water and climate indicators."
+        )
 
     assess = [
-        "In 'Assess' we ask: so what? What do these signals mean for operations, revenue, and the "
-        "nature-positive story?",
+        "In Assess we ask what these signals mean for operations, resilience and the wider nature-positive story.",
     ]
-    if lst is not None and float(lst) > 30:
+    try:
+        if lst is not None and float(lst) > 30:
+            assess.append(
+                f"Surface heat around {float(lst):.1f} °C is high enough to raise CHP cooling load, affect odour control and reduce outdoor worker comfort."
+            )
+    except Exception:
+        pass
+    try:
+        if flood is not None and float(flood) > 0.1:
+            assess.append(
+                f"Modelled flood depth of about {float(flood):.2f} m in a 1-in-100-year event means tanks, CHP units and switchgear need flood-resilient siting."
+            )
+    except Exception:
+        pass
+    try:
+        if travel is not None and float(travel) > 90:
+            assess.append(
+                f"Estimated travel time to the main eThekwini feedstock market is about {float(travel):.0f} minutes, which matters for meat, blood and perishable food-waste loads."
+            )
+    except Exception:
+        pass
+    if mol_insights:
         assess.append(
-            f"Surface heat around {float(lst):.1f} °C is high enough to raise CHP cooling load, affect "
-            "reception-bay odour control, and reduce outdoor worker productivity."
+            f"Species sensitivity matters too: Map of Life identifies {mol_insights.get('threatened_total', 'Not measured yet')} threatened or near-threatened species in this zone. "
+            "That raises the importance of keeping wet areas, drainage lines, edge habitat and natural buffers in good condition."
         )
-    if flood is not None and float(flood) > 0.1:
-        assess.append(
-            f"Modelled flood depth of about {float(flood):.2f} m in a 1-in-100-year event means digester "
-            "tanks, CHP units and switchgear need to be sited on the highest ground and protected by bunds. "
-            "KZN's 2022 floods showed why this matters."
-        )
-    if travel is not None and float(travel) > 90:
-        assess.append(
-            f"Estimated travel time to the main eThekwini feedstock market is about {float(travel):.0f} "
-            "minutes. For meat and blood from abattoirs that is long — a refrigerated transfer station or "
-            "off-peak collection windows could reduce spoilage and fuel cost."
-        )
-    assess.append(
-        "On the upside, diverting 100 t/day of organic waste from landfill is a major nature-positive "
-        "story. At screening assumptions this is roughly 9,125 tCO₂e avoided per year. Quantifying and "
-        "verifying this is one of the most valuable things the business can do for TNFD alignment, "
-        "municipal relationships, and potential carbon-market revenue."
-    )
 
     prepare = [
-        "In 'Prepare' we ask: what do we actually do next, and how do we show progress?",
-        "Pick two or three recommendations that can start in the next 90 days: secure multi-source "
-        "feedstock contracts, lock in process-water supply, and raise flood resilience of critical "
-        "infrastructure. Track each one as a simple monthly KPI.",
-        "When engaging eThekwini, iLembe, farmers, banks or funders, present these nature readings "
-        "alongside financial and operational records. That is the whole point of nature intelligence: "
-        "linking ecology to cash flow and to the social licence to operate.",
+        "In Prepare we ask what to do next and how to show progress.",
+        "Start with practical actions: secure multi-source feedstock contracts, lock in process-water supply, and protect the most sensitive buffers and drainage lines around the site.",
+        "When engaging municipalities, farmers, banks or funders, present species and habitat context alongside operational metrics. That is the value of nature intelligence: linking ecology to decisions and cash flow.",
     ]
+    if mol_insights:
+        prepare.append(
+            "Use the Map of Life layer as an early screening tool before siting new infrastructure, extending routes, or planning digestate receiving areas."
+        )
 
-    return {
-        "Locate": locate,
-        "Evaluate": evaluate,
-        "Assess": assess,
-        "Prepare": prepare,
-    }
+    return {"Locate": locate, "Evaluate": evaluate, "Assess": assess, "Prepare": prepare}
