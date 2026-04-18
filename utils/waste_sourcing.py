@@ -26,6 +26,14 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+from utils.supply_engine import (
+    calculate_total_supply,
+    calculate_utilisation,
+    calculate_headroom,
+)
+from utils.carbon_engine import calculate_avoided_methane
+from utils.reliability_engine import reliability_score
+
 
 # -----------------------------------------------------------------------------
 # Waste sources — geographic nodes relevant to BL Turner
@@ -247,12 +255,24 @@ def total_estimated_supply() -> float:
 
 
 def supply_headroom() -> Dict[str, float]:
-    total = total_estimated_supply()
+    total = calculate_total_supply(WASTE_SOURCES)
+    utilisation = calculate_utilisation(total)
+    headroom = calculate_headroom(total)
+    continuity = continuity_risk_assessment()
+    reliability = reliability_score(headroom, continuity)
+    carbon = calculate_avoided_methane(total)
+
     return {
         "nameplate_tpd": NAMEPLATE_TONS_PER_DAY,
+        "total_supply_tpd": total,
         "estimated_supply_tpd": total,
-        "headroom_tpd": total - NAMEPLATE_TONS_PER_DAY,
-        "coverage_pct": (total / NAMEPLATE_TONS_PER_DAY) * 100.0 if NAMEPLATE_TONS_PER_DAY > 0 else 0.0,
+        "headroom_tpd": headroom,
+        "coverage_pct": utilisation,
+        "utilisation_pct": utilisation,
+        "reliability_pct": reliability,
+        "co2e_tons": carbon["co2e_tons"],
+        "annual_tons_diverted": carbon["annual_tons_diverted"],
+        "methane_tons": carbon["methane_tons"],
     }
 
 
