@@ -1,49 +1,20 @@
 """
 BL Turner Group — Organic waste sourcing intelligence module.
 
-This module captures the waste sourcing logic that is specific to BL
-Turner's 100 t/day anaerobic-digestion facility at Portion 159 of New
-Guelderland, KwaDukuza, drawing feedstock from:
-
-  - iLembe District (KwaDukuza area — local municipal sources)
-  - eThekwini Metropolitan Municipality (restaurants, commercial
-    kitchens, distribution centres' expired food)
-  - uMgungundlovu District (Pietermaritzburg area — abattoir, agri)
-  - Western KZN (broader agricultural waste catchment)
-
-Addresses the client brief:
-  * Frequency of getting waste
-  * Tons of waste
-  * Seasonal patterns
-  * Continuity of supply (risk mitigation via multi-source contracting)
-
-Data used here are sector-level screening assumptions for pilot
-purposes. Municipal, eThekwini Waste, and abattoir operators should
-replace these with actual contracted volumes as they come online.
+Operational screening assumptions for BL Turner's 100 t/day anaerobic-
+digestion facility at Portion 159 of New Guelderland, KwaDukuza.
 """
 
 from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from utils.supply_engine import (
-    calculate_total_supply,
-    calculate_utilisation,
-    calculate_headroom,
-)
-from utils.carbon_engine import calculate_avoided_methane
-from utils.reliability_engine import reliability_score
+from supply_engine import calculate_total_supply, calculate_utilisation, calculate_headroom, monthly_projection
+from carbon_engine import calculate_avoided_methane
+from reliability_engine import reliability_score
 
-
-# -----------------------------------------------------------------------------
-# Waste sources — geographic nodes relevant to BL Turner
-# -----------------------------------------------------------------------------
-# Each source node has: name, lat/lon, KZN municipality, waste stream(s),
-# indicative daily tonnage available, collection frequency, seasonal
-# pattern, and risk/continuity notes.
 
 WASTE_SOURCES: List[Dict[str, Any]] = [
-    # --- iLembe District (around KwaDukuza main site) ---
     {
         "node_id": "ILEMBE_KWADUKUZA_FRESH_MARKET",
         "name": "KwaDukuza fresh produce market",
@@ -54,14 +25,8 @@ WASTE_SOURCES: List[Dict[str, Any]] = [
         "stream": "Fruit & vegetable waste",
         "tons_per_day_est": 4.0,
         "collection_frequency": "Daily (6 days/week)",
-        "seasonality": (
-            "Peaks Nov–Apr (summer fruits, mango, citrus, tropical). "
-            "Lower volume in winter but relatively stable year-round."
-        ),
-        "continuity_notes": (
-            "Low risk — core daily stream with short distance to plant "
-            "(~15–20 km). Retain as one of the anchor local contracts."
-        ),
+        "seasonality": "Summer peak, winter base flow",
+        "continuity_notes": "Low risk anchor stream close to the plant.",
         "role": "Anchor local source",
     },
     {
@@ -74,17 +39,10 @@ WASTE_SOURCES: List[Dict[str, Any]] = [
         "stream": "Food waste (restaurants & hotels)",
         "tons_per_day_est": 5.5,
         "collection_frequency": "Daily in high season, 3× per week in low season",
-        "seasonality": (
-            "Peaks Dec–Jan and Mar–Apr holidays (coastal tourism). "
-            "Low in Jun–Aug. Variation of ~40% between peak and trough."
-        ),
-        "continuity_notes": (
-            "Moderate risk — volume sensitive to tourism cycles. Diversify "
-            "across many outlets to avoid dependence on a handful of hotels."
-        ),
+        "seasonality": "Holiday-driven peak with winter dip",
+        "continuity_notes": "Moderate risk due to tourism seasonality.",
         "role": "Seasonal peak source",
     },
-    # --- eThekwini Metropolitan Municipality ---
     {
         "node_id": "ETHEKWINI_DURBAN_FRESH_PRODUCE",
         "name": "Durban Fresh Produce Market (Clairwood)",
@@ -95,15 +53,8 @@ WASTE_SOURCES: List[Dict[str, Any]] = [
         "stream": "Fruit & vegetable waste",
         "tons_per_day_est": 22.0,
         "collection_frequency": "Daily",
-        "seasonality": (
-            "Strong peaks Dec–Feb (summer fruit) and Jun–Jul (citrus). "
-            "Base volume present year-round."
-        ),
-        "continuity_notes": (
-            "Low-to-moderate risk — volume is large and consistent, but the ~90 km "
-            "distance to KwaDukuza drives fuel and spoilage cost. A refrigerated "
-            "transfer / pre-sort station near the market would materially de-risk this stream."
-        ),
+        "seasonality": "Year-round base with summer and citrus peaks",
+        "continuity_notes": "Large-volume stream but distance adds cost and route burden.",
         "role": "Primary bulk stream",
     },
     {
@@ -116,14 +67,8 @@ WASTE_SOURCES: List[Dict[str, Any]] = [
         "stream": "Food waste (commercial kitchens)",
         "tons_per_day_est": 12.0,
         "collection_frequency": "3–6× per week per outlet",
-        "seasonality": (
-            "Peaks Dec–Jan, Mar–Apr (holidays, Easter), and Sep (spring). "
-            "Weekly cycle: Thu–Sat volumes ~30% higher than Mon–Wed."
-        ),
-        "continuity_notes": (
-            "Moderate risk — requires many micro-contracts. Aggregator model or "
-            "partnership with a waste-management contractor is advised."
-        ),
+        "seasonality": "Holiday and weekend peaks",
+        "continuity_notes": "Requires aggregation across many outlets to stay dependable.",
         "role": "Distributed commercial stream",
     },
     {
@@ -136,13 +81,8 @@ WASTE_SOURCES: List[Dict[str, Any]] = [
         "stream": "Expired / near-date food from DCs",
         "tons_per_day_est": 10.0,
         "collection_frequency": "2–4× per week per DC",
-        "seasonality": (
-            "Relatively flat year-round, with small peaks post-holidays (returns)."
-        ),
-        "continuity_notes": (
-            "Low risk — DCs are consolidated points and prefer a single offtaker. "
-            "High strategic value as a bankable baseload contract."
-        ),
+        "seasonality": "Relatively stable year-round",
+        "continuity_notes": "Good baseload opportunity if agreements are secured.",
         "role": "Baseload contract target",
     },
     {
@@ -154,16 +94,11 @@ WASTE_SOURCES: List[Dict[str, Any]] = [
         "lon": 31.0218,
         "stream": "Municipal organic fraction",
         "tons_per_day_est": 15.0,
-        "collection_frequency": "Weekly per household route (daily at consolidation point)",
-        "seasonality": "Broadly flat, ~10% summer peak",
-        "continuity_notes": (
-            "Moderate-to-high risk depending on the status of eThekwini's "
-            "organic-separation rollout. Confirm formal municipal contracts before "
-            "relying on this volume."
-        ),
+        "collection_frequency": "Weekly per route (daily at consolidation point)",
+        "seasonality": "Broadly flat with light summer uplift",
+        "continuity_notes": "Growth stream but should not be treated as guaranteed day-one baseload.",
         "role": "Growth opportunity",
     },
-    # --- uMgungundlovu (Pietermaritzburg) ---
     {
         "node_id": "UMGUNGUNDLOVU_ABATTOIR",
         "name": "Pietermaritzburg abattoir cluster",
@@ -174,18 +109,10 @@ WASTE_SOURCES: List[Dict[str, Any]] = [
         "stream": "Meat & blood waste (abattoir)",
         "tons_per_day_est": 8.0,
         "collection_frequency": "Daily",
-        "seasonality": (
-            "Peaks Nov–Dec (festive meat demand) and Apr (Easter). "
-            "Base volume runs evenly year-round."
-        ),
-        "continuity_notes": (
-            "Moderate risk — requires cold-chain collection to prevent spoilage "
-            "and biosecurity issues. Must be co-digested with high-C feedstocks "
-            "(veg waste) to balance nitrogen."
-        ),
+        "seasonality": "Steady year-round with festive peaks",
+        "continuity_notes": "High-value stream but needs cold-chain and odour control.",
         "role": "Energy-dense co-feed",
     },
-    # --- Western KZN (broader agricultural catchment) ---
     {
         "node_id": "WESTERN_KZN_AGRI",
         "name": "Western KZN agricultural waste catchment (to be confirmed)",
@@ -196,62 +123,179 @@ WASTE_SOURCES: List[Dict[str, Any]] = [
         "stream": "Agricultural waste (crop residues, culled produce)",
         "tons_per_day_est": 6.0,
         "collection_frequency": "Seasonal — 3–5× per week during harvest windows",
-        "seasonality": (
-            "Strongly seasonal. Maize residue peaks May–Jul; sugarcane "
-            "trash Apr–Nov; vegetable culls Oct–Apr."
-        ),
-        "continuity_notes": (
-            "Highest supply-variability risk. Use as a seasonal 'booster' stream "
-            "rather than a baseload. Coordinate with harvest calendars."
-        ),
+        "seasonality": "Strong seasonal windows",
+        "continuity_notes": "Use as a seasonal booster, not a baseload stream.",
         "role": "Seasonal booster (unconfirmed)",
     },
 ]
 
-# --- Digestate off-take areas (where the fertiliser product is expected to go)
-
 DIGESTATE_OFFTAKE_AREAS: List[Dict[str, Any]] = [
     {
         "name": "KZN North Coast sugarcane belt",
+        "region": "North Coast",
         "lat": -29.3100,
         "lon": 31.3500,
-        "notes": (
-            "Sugarcane and banana farms along the KZN north coast between "
-            "KwaDukuza and Mtubatuba. Organic fertiliser supports soil carbon "
-            "and reduces synthetic input dependence."
-        ),
+        "priority": "High",
+        "estimated_hectares": 1200,
+        "uptake_rate_t_per_ha": 8.0,
+        "description": "Sugarcane and banana areas close to the plant.",
+        "notes": "Strong early market because it is close to the plant and aligned to nutrient-recycling messaging.",
+        "role": "Primary digestate market",
     },
     {
         "name": "iLembe & uMgungundlovu mixed-cropping areas",
+        "region": "iLembe / uMgungundlovu",
         "lat": -29.5000,
         "lon": 30.8000,
-        "notes": (
-            "Vegetables, dryland maize and smallholder mixed cropping. "
-            "Digestate can be positioned as a lower-cost organic amendment "
-            "for cooperatives and agri-incubation programmes."
-        ),
+        "priority": "High",
+        "estimated_hectares": 900,
+        "uptake_rate_t_per_ha": 6.0,
+        "description": "Vegetable, maize and mixed-cropping farms.",
+        "notes": "Useful for farmer outreach and blended digestate market entry.",
+        "role": "Secondary digestate market",
     },
     {
         "name": "Western KZN broadacre cropping",
+        "region": "Western KZN",
         "lat": -28.9500,
         "lon": 29.9000,
-        "notes": (
-            "Maize, soya, wheat areas in Bergville / Winterton region. "
-            "Volume sink for dewatered digestate; soil-carbon restoration "
-            "opportunity on depleted soils."
-        ),
+        "priority": "Medium",
+        "estimated_hectares": 1400,
+        "uptake_rate_t_per_ha": 5.0,
+        "description": "Maize, soya and broadacre cropping zones.",
+        "notes": "Large demand sink but more transport-intensive.",
+        "role": "Volume sink",
     },
 ]
 
-# -----------------------------------------------------------------------------
-# Analytics
-# -----------------------------------------------------------------------------
-
 NAMEPLATE_TONS_PER_DAY = 100.0
+
+MONTHLY_MULTIPLIERS: Dict[str, List[float]] = {
+    "ILEMBE_KWADUKUZA_FRESH_MARKET": [1.2, 1.2, 1.1, 1.1, 0.9, 0.8, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3],
+    "ILEMBE_BALLITO_HOSPITALITY": [1.3, 1.1, 1.2, 1.2, 0.8, 0.6, 0.6, 0.7, 0.9, 1.0, 1.1, 1.4],
+    "ETHEKWINI_DURBAN_FRESH_PRODUCE": [1.3, 1.2, 1.1, 1.0, 0.9, 1.1, 1.2, 1.0, 0.9, 1.0, 1.1, 1.3],
+    "ETHEKWINI_HOSPITALITY_DURBAN": [1.2, 1.0, 1.2, 1.2, 0.9, 0.8, 0.8, 0.9, 1.1, 1.0, 1.1, 1.3],
+    "ETHEKWINI_DISTRIBUTION_CENTRES": [1.1, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.1],
+    "ETHEKWINI_MUNICIPAL_ORGANICS": [1.1, 1.1, 1.0, 1.0, 0.9, 0.9, 0.9, 0.9, 1.0, 1.0, 1.1, 1.1],
+    "UMGUNGUNDLOVU_ABATTOIR": [1.0, 1.0, 1.0, 1.2, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.2, 1.3],
+    "WESTERN_KZN_AGRI": [1.2, 1.1, 0.9, 0.8, 1.3, 1.4, 1.3, 0.9, 0.8, 1.0, 1.0, 1.1],
+}
 
 
 def total_estimated_supply() -> float:
-    return sum(float(s.get("tons_per_day_est", 0.0)) for s in WASTE_SOURCES)
+    return calculate_total_supply(WASTE_SOURCES)
+
+
+def stream_mix_summary() -> List[Dict[str, Any]]:
+    agg: Dict[str, float] = {}
+    for s in WASTE_SOURCES:
+        stream = s.get("stream", "Other")
+        agg[stream] = agg.get(stream, 0.0) + float(s.get("tons_per_day_est", 0.0))
+    total = sum(agg.values()) or 1.0
+    return [
+        {"stream": stream, "tons_per_day": tpd, "share_pct": (tpd / total) * 100.0}
+        for stream, tpd in sorted(agg.items(), key=lambda kv: kv[1], reverse=True)
+    ]
+
+
+def district_mix_summary() -> List[Dict[str, Any]]:
+    agg: Dict[str, float] = {}
+    for s in WASTE_SOURCES:
+        district = s.get("district", "Other")
+        agg[district] = agg.get(district, 0.0) + float(s.get("tons_per_day_est", 0.0))
+    total = sum(agg.values()) or 1.0
+    return [
+        {"district": district, "tons_per_day": tpd, "share_pct": (tpd / total) * 100.0}
+        for district, tpd in sorted(agg.items(), key=lambda kv: kv[1], reverse=True)
+    ]
+
+
+def seasonal_supply_profile() -> List[Dict[str, Any]]:
+    return monthly_projection(WASTE_SOURCES, MONTHLY_MULTIPLIERS, NAMEPLATE_TONS_PER_DAY)
+
+
+def continuity_risk_assessment() -> List[Dict[str, str]]:
+    rows: List[Dict[str, str]] = []
+
+    streams = stream_mix_summary()
+    top = streams[0] if streams else None
+    if top and top["share_pct"] > 40:
+        rows.append({
+            "level": "Moderate",
+            "risk": "Feedstock concentration risk",
+            "indicator": f"{top['stream']} ({top['share_pct']:.0f}% of supply)",
+            "meaning": f"The '{top['stream']}' category contributes about {top['share_pct']:.0f}% of screening supply, so disruption in that stream would materially affect plant loading.",
+            "mitigation": "Keep each major stream below about 40% of total intake and diversify across multiple source categories.",
+        })
+    else:
+        rows.append({
+            "level": "Low",
+            "risk": "Feedstock concentration risk",
+            "indicator": "No dominant stream",
+            "meaning": "No single waste stream dominates the current supply mix.",
+            "mitigation": "Maintain diversity across municipal, hospitality, produce, abattoir and agricultural streams.",
+        })
+
+    ethekwini_tpd = sum(s["tons_per_day_est"] for s in WASTE_SOURCES if s["district"] == "eThekwini Metro")
+    total_tpd = total_estimated_supply() or 1.0
+    ethekwini_share = (ethekwini_tpd / total_tpd) * 100.0
+    if ethekwini_share > 55:
+        rows.append({
+            "level": "Moderate",
+            "risk": "Long-haul logistics risk",
+            "indicator": f"eThekwini share ~{ethekwini_share:.0f}%",
+            "meaning": f"About {ethekwini_share:.0f}% of supply sits in longer-haul eThekwini routes, which increases fuel cost, spoilage exposure and routing complexity.",
+            "mitigation": "Use nearer iLembe streams as base-load where possible and keep Durban-heavy routes cost-controlled.",
+        })
+    else:
+        rows.append({
+            "level": "Low",
+            "risk": "Long-haul logistics risk",
+            "indicator": f"eThekwini share ~{ethekwini_share:.0f}%",
+            "meaning": "Long-haul exposure is present but still manageable in the current portfolio.",
+            "mitigation": "Continue monitoring route cost and source concentration as volumes grow.",
+        })
+
+    profile = seasonal_supply_profile()
+    peak = max(p["supply_tpd"] for p in profile) if profile else 0.0
+    trough = min(p["supply_tpd"] for p in profile) if profile else 0.0
+    variation = ((peak - trough) / peak * 100.0) if peak else 0.0
+    if variation > 20:
+        rows.append({
+            "level": "Moderate",
+            "risk": "Seasonal variability risk",
+            "indicator": f"~{variation:.0f}% seasonal swing",
+            "meaning": f"The current supply model swings by about {variation:.0f}% between peak and trough months, so stable plant loading will require active feedstock balancing.",
+            "mitigation": "Keep buffer storage and use seasonal booster streams to support trough months.",
+        })
+    else:
+        rows.append({
+            "level": "Low",
+            "risk": "Seasonal variability risk",
+            "indicator": f"~{variation:.0f}% seasonal swing",
+            "meaning": "Seasonal variation is present but not severe in the current mix.",
+            "mitigation": "Standard monthly planning should be sufficient if the current source mix holds.",
+        })
+
+    municipal_tpd = sum(s["tons_per_day_est"] for s in WASTE_SOURCES if "municipal" in s["stream"].lower())
+    if municipal_tpd > 0:
+        rows.append({
+            "level": "Watch",
+            "risk": "Municipal contract dependency",
+            "indicator": f"~{municipal_tpd:.0f} t/day municipal potential",
+            "meaning": "Part of the model depends on municipal organics streams that may take time to formalise or scale.",
+            "mitigation": "Treat municipal organics as a growth stream unless formal agreements are already in place.",
+        })
+
+    rows.append({
+        "level": "Watch",
+        "risk": "Abattoir biosecurity and odour risk",
+        "indicator": "Meat and blood waste stream",
+        "meaning": "Abattoir waste is energy-dense but operationally sensitive because it needs cold-chain handling, hygienic pre-treatment and strong odour control.",
+        "mitigation": "Use sealed receiving, controlled delivery windows and appropriate hygienisation before digestion.",
+    })
+
+    return rows
 
 
 def supply_headroom() -> Dict[str, float]:
@@ -276,241 +320,7 @@ def supply_headroom() -> Dict[str, float]:
     }
 
 
-def stream_mix_summary() -> List[Dict[str, Any]]:
-    """Aggregate supply by waste stream category."""
-    agg: Dict[str, float] = {}
-    for s in WASTE_SOURCES:
-        stream = s.get("stream", "Other")
-        agg[stream] = agg.get(stream, 0.0) + float(s.get("tons_per_day_est", 0.0))
-    total = sum(agg.values()) or 1.0
-    rows = []
-    for stream, tpd in sorted(agg.items(), key=lambda kv: kv[1], reverse=True):
-        rows.append({
-            "stream": stream,
-            "tons_per_day": tpd,
-            "share_pct": (tpd / total) * 100.0,
-        })
-    return rows
-
-
-def district_mix_summary() -> List[Dict[str, Any]]:
-    """Aggregate supply by district."""
-    agg: Dict[str, float] = {}
-    for s in WASTE_SOURCES:
-        d = s.get("district", "Other")
-        agg[d] = agg.get(d, 0.0) + float(s.get("tons_per_day_est", 0.0))
-    total = sum(agg.values()) or 1.0
-    rows = []
-    for d, tpd in sorted(agg.items(), key=lambda kv: kv[1], reverse=True):
-        rows.append({
-            "district": d,
-            "tons_per_day": tpd,
-            "share_pct": (tpd / total) * 100.0,
-        })
-    return rows
-
-
-def seasonal_supply_profile() -> List[Dict[str, Any]]:
-    """
-    Build an indicative monthly supply profile across all sources.
-    Each source contributes a monthly multiplier (0.5–1.3) reflecting
-    its stated seasonality, applied to its daily tonnage.
-
-    This is a screening profile, not a forecast.
-    """
-    months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
-
-    # Per-source monthly multipliers (12 values each). Index 0 = Jan.
-    profiles: Dict[str, List[float]] = {
-        "ILEMBE_KWADUKUZA_FRESH_MARKET": [1.2, 1.2, 1.1, 1.1, 0.9, 0.8, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3],
-        "ILEMBE_BALLITO_HOSPITALITY":     [1.3, 1.1, 1.2, 1.2, 0.8, 0.6, 0.6, 0.7, 0.9, 1.0, 1.1, 1.4],
-        "ETHEKWINI_DURBAN_FRESH_PRODUCE": [1.3, 1.2, 1.1, 1.0, 0.9, 1.1, 1.2, 1.0, 0.9, 1.0, 1.1, 1.3],
-        "ETHEKWINI_HOSPITALITY_DURBAN":   [1.2, 1.0, 1.2, 1.2, 0.9, 0.8, 0.8, 0.9, 1.1, 1.0, 1.1, 1.3],
-        "ETHEKWINI_DISTRIBUTION_CENTRES": [1.1, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.1],
-        "ETHEKWINI_MUNICIPAL_ORGANICS":   [1.1, 1.1, 1.0, 1.0, 0.9, 0.9, 0.9, 0.9, 1.0, 1.0, 1.1, 1.1],
-        "UMGUNGUNDLOVU_ABATTOIR":         [1.0, 1.0, 1.0, 1.2, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.2, 1.3],
-        "WESTERN_KZN_AGRI":               [1.2, 1.1, 0.9, 0.8, 1.3, 1.4, 1.3, 0.9, 0.8, 1.0, 1.0, 1.1],
-    }
-
-    monthly = [0.0] * 12
-    for s in WASTE_SOURCES:
-        nid = s["node_id"]
-        tpd = float(s.get("tons_per_day_est", 0.0))
-        mult = profiles.get(nid, [1.0] * 12)
-        for i in range(12):
-            monthly[i] += tpd * mult[i]
-
-    rows = []
-    for i, m in enumerate(months):
-        rows.append({
-            "month": m,
-            "supply_tpd": monthly[i],
-            "nameplate_tpd": NAMEPLATE_TONS_PER_DAY,
-            "headroom_tpd": monthly[i] - NAMEPLATE_TONS_PER_DAY,
-        })
-    return rows
-
-
-def continuity_risk_assessment() -> List[Dict[str, str]]:
-    """
-    Flag continuity-of-supply risks in a standard structure expected by app.py.
-
-    Standard output keys:
-      - level
-      - risk
-      - indicator
-      - meaning
-      - mitigation
-    """
-    rows: List[Dict[str, str]] = []
-
-    # Concentration risk by stream
-    streams = stream_mix_summary()
-    top = streams[0] if streams else None
-    if top and top["share_pct"] > 40:
-        rows.append({
-            "level": "Moderate",
-            "risk": "Feedstock concentration risk",
-            "indicator": f"{top['stream']} ({top['share_pct']:.0f}% of supply)",
-            "meaning": (
-                f"The '{top['stream']}' category accounts for about "
-                f"{top['share_pct']:.0f}% of the screening supply portfolio. "
-                "That means BL Turner could be too exposed to disruption in one stream."
-            ),
-            "mitigation": (
-                "Target each major stream to stay below about 40% of total intake. "
-                "Expand contracts across at least three waste categories and across "
-                "both eThekwini and iLembe sources."
-            ),
-        })
-    else:
-        rows.append({
-            "level": "Low",
-            "risk": "Feedstock concentration risk",
-            "indicator": "No dominant stream",
-            "meaning": (
-                "No single waste stream dominates the current screening portfolio."
-            ),
-            "mitigation": (
-                "Maintain diversified sourcing across food waste, municipal organics, "
-                "abattoir waste, and agricultural streams."
-            ),
-        })
-
-    # Geographic concentration / long-haul logistics
-    ethekwini_tpd = sum(
-        s["tons_per_day_est"]
-        for s in WASTE_SOURCES
-        if s["district"] == "eThekwini Metro"
-    )
-    total_tpd = total_estimated_supply() or 1.0
-    ethekwini_share = (ethekwini_tpd / total_tpd) * 100.0
-
-    if ethekwini_share > 55:
-        rows.append({
-            "level": "Moderate",
-            "risk": "Long-haul logistics risk",
-            "indicator": f"eThekwini share ~{ethekwini_share:.0f}%",
-            "meaning": (
-                f"eThekwini-sourced streams account for about {ethekwini_tpd:.0f} t/day "
-                f"out of {total_tpd:.0f} t/day total (~{ethekwini_share:.0f}%). "
-                "Because these sources are roughly 80–100 km from the plant, they increase "
-                "fuel cost, spoilage risk, and collection complexity."
-            ),
-            "mitigation": (
-                "Consider a refrigerated pre-sort or transfer station closer to Durban, "
-                "and negotiate off-peak collection slots to reduce transport pressure."
-            ),
-        })
-    else:
-        rows.append({
-            "level": "Low",
-            "risk": "Long-haul logistics risk",
-            "indicator": f"eThekwini share ~{ethekwini_share:.0f}%",
-            "meaning": (
-                "eThekwini-sourced streams are a manageable share of the current supply mix."
-            ),
-            "mitigation": (
-                "Continue monitoring diesel cost, driver hours, and spoilage risk per load."
-            ),
-        })
-
-    # Seasonal variability
-    profile = seasonal_supply_profile()
-    peak = max(p["supply_tpd"] for p in profile) if profile else 0.0
-    trough = min(p["supply_tpd"] for p in profile) if profile else 0.0
-    variation = ((peak - trough) / peak * 100.0) if peak else 0.0
-
-    if variation > 20:
-        rows.append({
-            "level": "Moderate",
-            "risk": "Seasonal variability risk",
-            "indicator": f"~{variation:.0f}% seasonal swing",
-            "meaning": (
-                f"Modelled feedstock supply varies by about {variation:.0f}% between the "
-                f"peak month (~{peak:.0f} t/day) and the trough month (~{trough:.0f} t/day). "
-                "That means BL Turner may struggle to keep the plant evenly loaded all year."
-            ),
-            "mitigation": (
-                "Size buffer storage for at least 7–14 days of feedstock and use seasonal "
-                "contracts with Western KZN agricultural sources to support trough months."
-            ),
-        })
-    else:
-        rows.append({
-            "level": "Low",
-            "risk": "Seasonal variability risk",
-            "indicator": f"~{variation:.0f}% seasonal swing",
-            "meaning": (
-                "Modelled seasonal variation is relatively modest."
-            ),
-            "mitigation": (
-                "Standard weekly operational planning should be sufficient, but continue tracking seasonality."
-            ),
-        })
-
-    # Municipal dependency
-    municipal_tpd = sum(
-        s["tons_per_day_est"]
-        for s in WASTE_SOURCES
-        if "municipal" in s["stream"].lower()
-    )
-
-    if municipal_tpd > 0:
-        rows.append({
-            "level": "Watch",
-            "risk": "Municipal contract dependency",
-            "indicator": f"~{municipal_tpd:.0f} t/day potential municipal supply",
-            "meaning": (
-                f"About {municipal_tpd:.0f} t/day of potential supply depends on municipal "
-                "organic-separation rollouts that may not yet be fully contracted."
-            ),
-            "mitigation": (
-                "Secure MoUs or formal agreements with eThekwini and KwaDukuza waste departments early. "
-                "Treat municipal organics as a growth stream rather than guaranteed day-one baseload."
-            ),
-        })
-
-    # Abattoir / biosecurity
-    rows.append({
-        "level": "Watch",
-        "risk": "Abattoir biosecurity and odour risk",
-        "indicator": "Meat and blood waste stream",
-        "meaning": (
-            "Meat and blood waste needs cold-chain collection, hygienic pre-treatment, "
-            "and strong odour control to avoid spoilage, compliance issues, and community concerns."
-        ),
-        "mitigation": (
-            "Invest in a sealed cold-receiving bay, dedicated delivery slots, and a hygienisation "
-            "or equivalent pre-treatment step aligned with animal by-product requirements."
-        ),
-    })
-
-    return rows
-
-
 def collection_frequency_table() -> List[Dict[str, str]]:
-    """Return a structured view of collection frequency per source, used in the UI."""
     rows = []
     for s in WASTE_SOURCES:
         rows.append({
