@@ -1637,23 +1637,36 @@ if results is not None:
         # Supply headroom summary
         st.markdown("### Supply vs nameplate capacity")
         display_metric_cards([
-            {"label": "Total potential supply",
-             "value": fmt_num(headroom.get("total_supply_tpd"), 1, " t/day"),
-             "subtext": "Sum of all modelled source nodes",
-             "raw": headroom.get("total_supply_tpd")},
-            {"label": "Nameplate capacity",
-             "value": fmt_num(headroom.get("nameplate_tpd"), 0, " t/day"),
-             "subtext": "100 t/day AD plant design",
-             "raw": headroom.get("nameplate_tpd")},
-            {"label": "Headroom / shortfall",
-             "value": fmt_num(headroom.get("headroom_tpd"), 1, " t/day"),
-             "subtext": "Positive = headroom, negative = shortfall",
-             "raw": headroom.get("headroom_tpd")},
-            {"label": "Utilisation",
-             "value": fmt_num(headroom.get("utilisation_pct"), 1, "%"),
-             "subtext": "Estimated capacity utilisation",
-             "raw": headroom.get("utilisation_pct")},
-        ], per_row=2)
+    {"label": "Total potential supply",
+     "value": fmt_num(headroom.get("total_supply_tpd"), 1, " t/day"),
+     "subtext": "Sum of all modelled source nodes",
+     "raw": headroom.get("total_supply_tpd")},
+
+    {"label": "Nameplate capacity",
+     "value": fmt_num(headroom.get("nameplate_tpd"), 0, " t/day"),
+     "subtext": "100 t/day AD plant design",
+     "raw": headroom.get("nameplate_tpd")},
+
+    {"label": "Headroom / shortfall",
+     "value": fmt_num(headroom.get("headroom_tpd"), 1, " t/day"),
+     "subtext": "Positive = headroom, negative = shortfall",
+     "raw": headroom.get("headroom_tpd")},
+
+    {"label": "Utilisation",
+     "value": fmt_num(headroom.get("utilisation_pct"), 1, "%"),
+     "subtext": "Estimated capacity utilisation",
+     "raw": headroom.get("utilisation_pct")},
+
+    {"label": "Supply reliability",
+     "value": fmt_num(headroom.get("reliability_pct"), 0, "%"),
+     "subtext": "Operational continuity index",
+     "raw": headroom.get("reliability_pct")},
+
+    {"label": "Avoided methane",
+     "value": fmt_num(headroom.get("co2e_tons"), 0, " t CO₂e"),
+     "subtext": "Annual landfill diversion benefit",
+     "raw": headroom.get("co2e_tons")},
+], per_row=3)
 
         # Waste sources table
         st.markdown("### Waste source nodes")
