@@ -2150,7 +2150,7 @@ if results is not None:
              "raw": metrics.get("flood_risk")},
         ], per_row=3)
 
-        st.markdown("### TNFD-style dependencies (what the AD plant relies on)")
+        st.markdown("### TNFD Dependencies (what the AD plant relies on)")
         dependencies = risk.get("dependencies", [])
         if dependencies:
             for dep in dependencies:
