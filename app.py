@@ -361,7 +361,7 @@ def login_gate():
         st.markdown(
             """
             <div class="login-brand-chip">EagleNatureInsight · BL Turner Group Pilot</div>
-            <h1 class="login-title">Nature intelligence for organic waste, biogas and fertiliser.</h1>
+            <h1 class="login-title">    Nature intelligence delivered through a simple, structured workflow.</h1>
             <div class="login-subtitle">
                 A TNFD-aligned LEAP workspace for BL Turner Group's anaerobic digestion
                 operations across a regional supply network — with site environmental screening
