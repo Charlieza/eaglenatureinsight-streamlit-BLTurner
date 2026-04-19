@@ -2168,7 +2168,7 @@ if results is not None:
         for line in leap_story["Assess"]:
             st.write(f"- {line}")
 
-        st.markdown("### Portfolio of indicators (no single score)")
+        st.markdown("### Portfolio of indicators")
         st.caption(
             "TNFD recommends reporting individual indicators rather than aggregating into one "
             "number. Each indicator below has its own status, meaning and suggested response."
