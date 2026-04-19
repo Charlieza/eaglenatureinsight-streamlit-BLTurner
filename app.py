@@ -403,7 +403,7 @@ def login_gate():
                 <h2 class="login-panel-title">Sign in to continue</h2>
             </div>
             <div class="login-panel-copy">
-                Enter your BL Turner pilot access credentials to open the platform.
+                Enter your access credentials to open the platform.
             </div>
             """,
             unsafe_allow_html=True,
