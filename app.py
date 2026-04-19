@@ -1,5 +1,5 @@
 """
-EagleNatureInsight™ — BL Turner Group
+EagleNatureInsight — BL Turner Group
 ========================================
 
 Streamlit app tailored for BL Turner Group (Pty) Ltd's 100 t/day organic
@@ -156,7 +156,7 @@ except ModuleNotFoundError:
 
 st.set_page_config(page_title="EagleNatureInsight — BL Turner Group", layout="wide")
 
-APP_TITLE = "EagleNatureInsight™ — BL Turner Group"
+APP_TITLE = "EagleNatureInsight — BL Turner Group"
 APP_SUBTITLE = "Nature intelligence for organic waste, biogas and fertiliser operations"
 APP_TAGLINE = "Locate • Evaluate • Assess • Prepare"
 
@@ -1334,7 +1334,7 @@ summary_text, geometry_payload, ee_geom = get_geometry_payload(
 st.markdown("### Current selection")
 st.write(summary_text)
 
-run_clicked = st.button("Generate nature intelligence assessment", type="primary", width='stretch')
+run_clicked = st.button("Generate Insights", type="primary", width='stretch')
 
 if run_clicked:
     update_map_view_from_selection(geometry_payload, st.session_state["draw_mode"])
@@ -1631,7 +1631,7 @@ if run:
 
 if st.session_state["report_payload"] is not None:
     st.download_button(
-        label="📄 Download BL Turner PDF Report",
+        label="Download PDF Report",
         data=st.session_state["report_payload"]["pdf_bytes"],
         file_name=st.session_state["report_payload"]["file_name"],
         mime="application/pdf",
@@ -1681,20 +1681,20 @@ if results is not None:
 
     leap_story = plain_language_leap_summary(preset, metrics, mol_insights)
 
-    (tab1, tab_waste, tab_capacity, tab_digestate,
+    (tab1, tab2, tab3, tab4,
+     tab_waste, tab_capacity, tab_digestate,
      tab_water, tab_portfolio, tab_engage,
-     tab2, tab3, tab4, tab5,
-     tab_tnfd, tab_npi, tab_mol, tab6, tab7, tab8, tab_prov) = st.tabs([
+     tab5, tab_tnfd, tab_npi, tab_mol, tab6, tab7, tab8, tab_prov) = st.tabs([
         "LEAP · Locate",
-        "🌱 Waste sourcing",
-        "⚠️ Capacity risk",
-        "♻️ Digestate demand",
-        "💧 Water balance",
-        "🧭 Portfolio & sites",
-        "🤝 Stakeholders",
         "LEAP · Evaluate",
         "LEAP · Assess",
         "LEAP · Prepare",
+        "Waste sourcing",
+        "Capacity risk",
+        "Digestate demand",
+        "Water balance",
+        "Portfolio & sites",
+        "Stakeholders",
         "Risk flags",
         "TNFD core metrics",
         "Nature Positive (NPI)",
@@ -1702,7 +1702,7 @@ if results is not None:
         "Maps",
         "Trends",
         "Data",
-        "📖 How this is calculated",
+        "How this is calculated",
     ])
 
     # ========================= LEAP · Locate =========================
@@ -1743,7 +1743,7 @@ if results is not None:
 
     # ========================= Waste sourcing (BL Turner differentiator) =========================
     with tab_waste:
-        st.markdown("## 🌱 Waste sourcing intelligence")
+        st.markdown("## Waste sourcing intelligence")
         st.write(
             "This view addresses the four questions BL Turner asked directly: **where the waste "
             "comes from**, **how often**, **how much**, and **how continuity is maintained** "
@@ -1907,7 +1907,7 @@ if results is not None:
 
     # ========================= Capacity risk =========================
     with tab_capacity:
-        st.markdown("## ⚠️ Capacity risk dashboard")
+        st.markdown("## Capacity risk dashboard")
         st.write(
             "This dashboard pulls together supply, seasonality, continuity, and logistics into one "
             "plain-language operating view. It is not a single TNFD risk score. It is a decision view "
@@ -1956,7 +1956,7 @@ if results is not None:
 
     # ========================= Digestate demand =========================
     with tab_digestate:
-        st.markdown("## ♻️ Digestate demand and offtake view")
+        st.markdown("## Digestate demand and offtake view")
         st.write(
             "This view completes the circular model: waste comes in, the plant produces biogas and digestate, "
             "and the digestate needs a realistic market. These figures are screening estimates built from the "
@@ -2020,7 +2020,7 @@ if results is not None:
 
     # ========================= Water balance =========================
     with tab_water:
-        st.markdown("## 💧 Process water balance")
+        st.markdown("## Process water balance")
         st.write(
             "This view translates the plant's 100 t/day throughput and the "
             "satellite rainfall and evapotranspiration signals into a screening "
@@ -2062,7 +2062,7 @@ if results is not None:
 
     # ========================= Portfolio & multi-site =========================
     with tab_portfolio:
-        st.markdown("## 🧭 BL Turner portfolio view")
+        st.markdown("## BL Turner portfolio view")
         st.write(
             "BL Turner operates across more than just the AD plant. This view "
             "keeps the organic-waste, water-reseller and hydroponics lines "
@@ -2099,7 +2099,7 @@ if results is not None:
 
     # ========================= Stakeholders & behaviour change =========================
     with tab_engage:
-        st.markdown("## 🤝 Stakeholder engagement and behaviour change")
+        st.markdown("## Stakeholder engagement and behaviour change")
         st.write(
             "BL Turner's business depends on changing behaviour at the source: "
             "getting municipalities, restaurants, DCs, abattoirs and farmers to "
@@ -2413,18 +2413,23 @@ if results is not None:
     with tab7:
         st.markdown("## Historical trends")
         if not ndvi_hist_df.empty:
+            st.caption("Year-by-year greenness of the site — a rising line means vegetation is generally improving.")
             fig = px.line(ndvi_hist_df, x="year", y="value", title="Historical NDVI (Landsat)")
             st.plotly_chart(fig, width='stretch', key="trend_ndvi")
         if not rain_hist_df.empty:
+            st.caption("Annual rainfall totals for the area — shows wet and dry years that shape water availability.")
             fig = px.line(rain_hist_df, x="year", y="value", title="Historical Rainfall (CHIRPS)")
             st.plotly_chart(fig, width='stretch', key="trend_rain")
         if not lst_hist_df.empty:
+            st.caption("Average land-surface temperature over time — rising values point to a warmer operating environment.")
             fig = px.line(lst_hist_df, x="year", y="value", title="Historical Land Surface Temperature (MODIS)")
             st.plotly_chart(fig, width='stretch', key="trend_lst")
         if not forest_hist_df.empty:
+            st.caption("Tree cover lost in the landscape each year — tall bars flag years of heavier clearing nearby.")
             fig = px.bar(forest_hist_df, x="year", y="value", title="Historical Forest Loss by Year (Hansen)")
             st.plotly_chart(fig, width='stretch', key="trend_forest")
         if not water_hist_df.empty:
+            st.caption("Share of the area showing surface water each year — helps see wet/dry cycles and seasonal water presence.")
             fig = px.line(water_hist_df, x="year", y="value", title="Historical Water Presence (JRC)")
             st.plotly_chart(fig, width='stretch', key="trend_water")
 
@@ -2465,7 +2470,7 @@ if results is not None:
 
     # ========================= How this is calculated =========================
     with tab_prov:
-        st.markdown("## 📖 How this is calculated")
+        st.markdown("## How this is calculated")
         st.write(
             "Every indicator below names its dataset, native resolution, "
             "timeframe, and whether it is a direct measurement, a proxy, or a "
