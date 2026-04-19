@@ -2233,10 +2233,10 @@ if results is not None:
 
         st.markdown("### How BL Turner can monetise this")
         st.write(
-            "- Diverted tonnage and avoided methane can anchor a **voluntary carbon** narrative for local off-take buyers.\n"
-            "- Feedstock continuity evidence supports **municipal procurement** conversations in eThekwini, iLembe and uMgungundlovu.\n"
-            "- Digestate quality and off-take area mapping support **fertiliser contracts** with KZN sugarcane and mixed-cropping farms.\n"
-            "- The dashboard itself is a **funder-ready exhibit** for DBSA / IDC / commercial lenders assessing nature-related risk."
+            "- Diverted tonnage and avoided methane can anchor a voluntary carbon narrative for local off-take buyers.\n"
+            "- Feedstock continuity evidence supports municipal procurement conversations in eThekwini, iLembe and uMgungundlovu.\n"
+            "- Digestate quality and off-take area mapping support fertiliser contracts with KZN sugarcane and mixed-cropping farms.\n"
+            "- The dashboard itself is a funder-ready exhibit for DBSA / IDC / commercial lenders assessing nature-related risk."
         )
 
         render_feedback_widget({"tab": "prepare", "preset": preset})
