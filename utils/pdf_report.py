@@ -186,7 +186,7 @@ def add_report_header(story: List[Any], preset: str, category: str, hist_start: 
     except Exception:
         pass
 
-    story.append(Paragraph("EagleNatureInsight™ — BL Turner Group", _STYLES["TitleBrand"]))
+    story.append(Paragraph("EagleNatureInsight — BL Turner Group", _STYLES["TitleBrand"]))
     story.append(Paragraph("Organic waste-to-fertiliser & biogas — TNFD-aligned nature intelligence report", _STYLES["SectionBrand"]))
     story.append(Paragraph(
         f"Report date: {date.today().strftime('%d %B %Y')}<br/>"
@@ -313,7 +313,7 @@ def _page_number(canvas, doc):
     canvas.setFont(_BODY_FONT, 8)
     canvas.setFillColor(BRAND["muted"])
     canvas.drawRightString(PAGE_WIDTH - 1.6 * cm, 1.2 * cm, f"Page {doc.page}")
-    canvas.drawString(1.6 * cm, 1.2 * cm, "BL Turner Group · EagleNatureInsight™ report")
+    canvas.drawString(1.6 * cm, 1.2 * cm, "BL Turner Group · EagleNatureInsight report")
     canvas.restoreState()
 
 
@@ -669,6 +669,177 @@ def _water_balance_posture_chart_bytes(water_balance):
             pass
         return None
 
+def _npi_son_mapping_table(metrics: Dict[str, Any]) -> Table:
+    """Nature Positive Initiative State of Nature alignment using available proxies."""
+    rows = [
+        ["NPI SoN indicator", "What it means", "Proxy used in this report", "Value / status", "Maturity"],
+        [
+            "IND1 Ecosystem extent",
+            "How much of the area remains under natural or semi-natural ecosystem cover.",
+            "Tree cover, cropland share, and forest-loss signal",
+            f"Tree cover: {fmt_num(metrics.get('tree_cover_context_pct', metrics.get('tree_pct')), 1, '%')}<br/>"
+            f"Cropland: {fmt_num(metrics.get('cropland_pct'), 1, '%')}",
+            "Entry-level",
+        ],
+        [
+            "IND2 Ecosystem condition",
+            "How healthy or degraded the ecosystem appears to be.",
+            "NDVI current value and NDVI trend",
+            f"NDVI current: {fmt_num(metrics.get('ndvi_current'), 3)}<br/>"
+            f"NDVI trend: {fmt_num(metrics.get('ndvi_trend'), 3)}",
+            "Entry-level",
+        ],
+        [
+            "IND3 Landscape intactness",
+            "How connected or fragmented the wider landscape may be.",
+            "Context water and vegetation signals used qualitatively",
+            "Context-aware landscape reading applied",
+            "Entry-level",
+        ],
+        [
+            "IND4 Species extinction risk",
+            "Whether species-level risk information is available for the area.",
+            "Map of Life species and threat counts where available",
+            "See Nature & species section",
+            "Screening-level",
+        ],
+    ]
+
+    wrapped_rows: List[List[Any]] = []
+    for r_idx, row in enumerate(rows):
+        style = _STYLES["TableHead"] if r_idx == 0 else _STYLES["TableCell"]
+        wrapped_rows.append([Paragraph(_safe_text(cell), style) for cell in row])
+
+    tbl = Table(
+        wrapped_rows,
+        colWidths=[2.9 * cm, 3.6 * cm, 3.8 * cm, 3.4 * cm, 2.7 * cm],
+        repeatRows=1,
+        hAlign="LEFT",
+        splitByRow=1,
+    )
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), BRAND["accent"]),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("GRID", (0, 0), (-1, -1), 0.35, BRAND["border"]),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("LEADING", (0, 0), (-1, -1), 10),
+    ]))
+    return tbl
+
+
+def _mol_species_table(mol_insights: Dict[str, Any]) -> Table:
+    rows = [["Species / common name", "Group", "Threat level"]]
+    for item in mol_insights.get("top_species", [])[:8]:
+        label = item.get("name") or item.get("scientific_name") or "Species"
+        if item.get("scientific_name") and item.get("scientific_name") != label:
+            label = f"{label}<br/><font size=7>{item.get('scientific_name')}</font>"
+        rows.append([label, _safe_text(item.get("group")), _safe_text(item.get("threat"))])
+
+    wrapped_rows: List[List[Any]] = []
+    for r_idx, row in enumerate(rows):
+        style = _STYLES["TableHead"] if r_idx == 0 else _STYLES["TableCell"]
+        wrapped_rows.append([Paragraph(_safe_text(cell), style) for cell in row])
+
+    tbl = Table(wrapped_rows, colWidths=[8.0 * cm, 3.0 * cm, 3.0 * cm], repeatRows=1, hAlign="LEFT", splitByRow=1)
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), BRAND["primary"]),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("GRID", (0, 0), (-1, -1), 0.35, BRAND["border"]),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("LEADING", (0, 0), (-1, -1), 10),
+    ]))
+    return tbl
+
+
+def _mol_plot_bytes(mol_insights: Dict[str, Any]) -> Optional[bytes]:
+    trend_df = mol_insights.get("trend_df") if mol_insights else None
+    if trend_df is None:
+        return None
+    try:
+        if hasattr(trend_df, "empty") and trend_df.empty:
+            return None
+    except Exception:
+        return None
+
+    try:
+        df = trend_df.copy()
+        if "year" not in df.columns:
+            return None
+
+        plot_cols = [c for c in ["All species", "Birds", "Mammals", "Reptiles"] if c in df.columns]
+        if not plot_cols:
+            return None
+
+        fig, ax = plt.subplots(figsize=(7.2, 3.6))
+        for col in plot_cols:
+            series = df[["year", col]].dropna()
+            if not series.empty:
+                ax.plot(series["year"], series[col], linewidth=2.2, label=col)
+
+        ax.set_title("Species habitat score trend over time")
+        ax.set_xlabel("Year")
+        ax.set_ylabel("SHI")
+        ax.grid(True, alpha=0.25)
+        if len(plot_cols) > 1:
+            ax.legend(frameon=False, ncol=min(4, len(plot_cols)))
+        fig.tight_layout()
+
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=180, bbox_inches="tight")
+        plt.close(fig)
+        return buf.getvalue()
+    except Exception:
+        try:
+            plt.close("all")
+        except Exception:
+            pass
+        return None
+
+
+def _mol_threat_profile_table(mol_insights: Dict[str, Any]) -> Table:
+    rows = [["Code", "Meaning", "Count", "What this means for BL Turner"]]
+    for item in mol_insights.get("threat_profile_details", []):
+        rows.append([
+            _safe_text(item.get("code")),
+            _safe_text(item.get("name")),
+            _safe_text(item.get("count")),
+            _safe_text(item.get("business")),
+        ])
+
+    wrapped_rows: List[List[Any]] = []
+    for r_idx, row in enumerate(rows):
+        style = _STYLES["TableHead"] if r_idx == 0 else _STYLES["TableCell"]
+        wrapped_rows.append([Paragraph(_safe_text(cell), style) for cell in row])
+
+    tbl = Table(
+        wrapped_rows,
+        colWidths=[1.4 * cm, 3.5 * cm, 1.8 * cm, 9.1 * cm],
+        repeatRows=1,
+        hAlign="LEFT",
+        splitByRow=1,
+    )
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), BRAND["primary"]),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("GRID", (0, 0), (-1, -1), 0.35, BRAND["border"]),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 5),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 5),
+        ("LEADING", (0, 0), (-1, -1), 10),
+    ]))
+    return tbl
+
+
 def build_pdf_report(
     preset: str,
     category: str,
@@ -787,6 +958,84 @@ def build_pdf_report(
     ))
     story.append(_tnfd_core_metrics_table_pdf(metrics))
     _section_rule(story)
+
+    # --- 4b. NPI State of Nature ---
+    story.append(Paragraph("4b. Nature Positive Initiative — State of Nature indicators", _STYLES["SectionBrand"]))
+    story.append(Paragraph(
+        "The four indicators the Nature Positive Initiative recommends for measuring the state of nature around "
+        "a business: ecosystem extent, condition, intactness and species extinction risk. The table shows which "
+        "proxy the platform currently uses against each indicator, what value it returns for this site, and how "
+        "mature that reading is so reviewers can see where to deepen the measurement next.",
+        _STYLES["BodyBrand"],
+    ))
+    story.append(_npi_son_mapping_table(metrics))
+    _section_rule(story)
+
+    # --- 4c. Nature & species (Map of Life) ---
+    if mol_insights:
+        story.append(Paragraph("4c. Nature and species context", _STYLES["SectionBrand"]))
+        story.append(Paragraph(
+            f"Map of Life data for <b>{_safe_text(mol_insights.get('site_name'))}</b> adds a species and habitat "
+            f"reading to the wider BL Turner assessment. It shows how many bird, mammal and reptile species could "
+            f"use the surrounding landscape, how many fall into higher-risk categories, and whether habitat "
+            f"suitability has strengthened or weakened over time.",
+            _STYLES["BodyBrand"],
+        ))
+        story.append(Paragraph(
+            f"In this report, the <b>species total</b> is the number of bird, mammal and reptile species the "
+            f"dataset expects could use habitat around the site. The <b>Species Habitat Index (SHI)</b> is a "
+            f"habitat score: a higher value usually means the surrounding landscape is offering better habitat "
+            f"conditions for species. The <b>change since 2001</b> shows whether those habitat conditions have "
+            f"generally improved, held steady or weakened over time.",
+            _STYLES["BodyBrand"],
+        ))
+        if mol_insights.get("dictionary_note"):
+            story.append(Paragraph(_safe_text(mol_insights.get("dictionary_note")), _STYLES["MutedBrand"]))
+
+        species_rows = [
+            ("Expected species", _safe_text(mol_insights.get("species_total"))),
+            ("Threatened / near-threatened", _safe_text(mol_insights.get("threatened_total"))),
+            ("Latest habitat score (SHI)", fmt_num(mol_insights.get("latest_shi"), 2)),
+            ("Habitat score change since 2001", fmt_num(mol_insights.get("shi_change_total"), 2)),
+            ("Bird habitat score", fmt_num(mol_insights.get("birds_shi"), 2)),
+            ("Mammal habitat score", fmt_num(mol_insights.get("mammals_shi"), 2)),
+            ("Reptile habitat score", fmt_num(mol_insights.get("reptiles_shi"), 2)),
+        ]
+        story.append(_metric_table(species_rows, (6.5 * cm, 10.5 * cm)))
+        story.append(Spacer(1, 0.12 * cm))
+
+        mol_plot = _mol_plot_bytes(mol_insights)
+        if mol_plot:
+            story.append(Paragraph("Habitat score trend", _STYLES["SmallBrand"]))
+            story.append(Paragraph(
+                "This trend shows how habitat suitability has moved over time for all species together and, "
+                "where available, for birds, mammals and reptiles separately.",
+                _STYLES["BodyBrand"],
+            ))
+            story.append(Image(io.BytesIO(mol_plot), width=16.4 * cm, height=7.4 * cm))
+            story.append(Spacer(1, 0.15 * cm))
+
+        if mol_insights.get("threat_profile_details"):
+            story.append(Paragraph("Threat profile and business relevance", _STYLES["SmallBrand"]))
+            story.append(Paragraph(
+                "Threat codes are unpacked below so they are easier to read in business terms. The counts come "
+                "from the Map of Life site data, and the relevance column explains why those categories matter "
+                "for BL Turner's plant siting, feedstock sourcing, digestate application and buffer decisions.",
+                _STYLES["BodyBrand"],
+            ))
+            story.append(_mol_threat_profile_table(mol_insights))
+            story.append(Spacer(1, 0.15 * cm))
+
+        story.append(Paragraph("What the species results mean for BL Turner", _STYLES["SmallBrand"]))
+        _add_bullets(story, mol_insights.get("advisory_notes", []))
+        story.append(Paragraph("How this feeds decision-making", _STYLES["SmallBrand"]))
+        _add_bullets(story, mol_insights.get("service_notes", []))
+        story.append(Paragraph("TNFD reading", _STYLES["SmallBrand"]))
+        _add_bullets(story, mol_insights.get("tnfd_points", []))
+        if mol_insights.get("top_species"):
+            story.append(Paragraph("Priority species expected at the site", _STYLES["SmallBrand"]))
+            story.append(_mol_species_table(mol_insights))
+        _section_rule(story)
 
     # --- 5. Waste sourcing ---
     story.append(Paragraph("5. Organic waste sourcing portfolio", _STYLES["SectionBrand"]))
