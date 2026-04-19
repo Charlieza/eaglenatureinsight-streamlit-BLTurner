@@ -80,6 +80,18 @@ try:
     from utils.capacity_risk_engine import build_capacity_risk_dashboard
     from utils.digestate_demand_engine import build_digestate_dashboard
     from utils.mol_blturner import build_mol_insights, make_mol_shi_long_df, mol_shi_chart_bytes, mol_summary_chart_bytes, render_species_badges
+    from utils.water_balance_engine import compute_water_balance
+    from utils.portfolio_registry import (
+        BL_TURNER_SITES,
+        solution_playbook,
+        site_by_name,
+        solution_lines,
+    )
+    from utils.data_provenance import provenance_table, scope_boundary_statement
+    from utils.stakeholder_engagement import (
+        engagement_tracker_rows,
+        data_sharing_agreement_checklist,
+    )
 except ModuleNotFoundError:
     from ee_helpers import (
         initialize_ee_from_secrets,
@@ -128,6 +140,18 @@ except ModuleNotFoundError:
     from capacity_risk_engine import build_capacity_risk_dashboard
     from digestate_demand_engine import build_digestate_dashboard
     from mol_blturner import build_mol_insights, make_mol_shi_long_df, mol_shi_chart_bytes, mol_summary_chart_bytes, render_species_badges
+    from water_balance_engine import compute_water_balance
+    from portfolio_registry import (
+        BL_TURNER_SITES,
+        solution_playbook,
+        site_by_name,
+        solution_lines,
+    )
+    from data_provenance import provenance_table, scope_boundary_statement
+    from stakeholder_engagement import (
+        engagement_tracker_rows,
+        data_sharing_agreement_checklist,
+    )
 
 
 st.set_page_config(page_title="EagleNatureInsight — BL Turner Group", layout="wide")
@@ -1634,11 +1658,17 @@ if results is not None:
 
     leap_story = plain_language_leap_summary(preset, metrics, mol_insights)
 
-    tab1, tab_waste, tab_capacity, tab_digestate, tab2, tab3, tab4, tab5, tab_tnfd, tab_npi, tab_mol, tab6, tab7, tab8 = st.tabs([
+    (tab1, tab_waste, tab_capacity, tab_digestate,
+     tab_water, tab_portfolio, tab_engage,
+     tab2, tab3, tab4, tab5,
+     tab_tnfd, tab_npi, tab_mol, tab6, tab7, tab8, tab_prov) = st.tabs([
         "LEAP · Locate",
         "🌱 Waste sourcing",
         "⚠️ Capacity risk",
         "♻️ Digestate demand",
+        "💧 Water balance",
+        "🧭 Portfolio & sites",
+        "🤝 Stakeholders",
         "LEAP · Evaluate",
         "LEAP · Assess",
         "LEAP · Prepare",
@@ -1649,6 +1679,7 @@ if results is not None:
         "Maps",
         "Trends",
         "Data",
+        "📖 How this is calculated",
     ])
 
     # ========================= LEAP · Locate =========================
@@ -1963,6 +1994,105 @@ if results is not None:
         st.markdown("### Recommended next moves")
         for line in digestate_outputs.get("actions", []):
             st.write(f"- {line}")
+
+    # ========================= Water balance =========================
+    with tab_water:
+        st.markdown("## 💧 Process water balance")
+        st.write(
+            "This view translates the plant's 100 t/day throughput and the "
+            "satellite rainfall and evapotranspiration signals into a screening "
+            "process-water balance. It is intended for early planning conversations "
+            "with the municipality and the water engineer — not for billing."
+        )
+        wb = compute_water_balance(metrics)
+
+        display_metric_cards([
+            {"label": "Gross water demand",
+             "value": fmt_num(wb["kpis"]["gross_demand_m3_day"], 1, " m³/day"),
+             "subtext": "Before digestate recycling and rainwater harvesting",
+             "raw": wb["kpis"]["gross_demand_m3_day"]},
+            {"label": "Net municipal demand",
+             "value": fmt_num(wb["kpis"]["municipal_m3_day"], 1, " m³/day"),
+             "subtext": "After recycling and rainwater offset",
+             "raw": wb["kpis"]["municipal_m3_day"]},
+            {"label": "Annual municipal water cost",
+             "value": f"R {wb['kpis']['annual_municipal_cost_zar']:,.0f}",
+             "subtext": "Indicative, at assumed KwaDukuza tariff",
+             "raw": wb["kpis"]["annual_municipal_cost_zar"]},
+            {"label": "Dry-year emergency cost",
+             "value": f"R {wb['kpis']['dry_year_emergency_cost_zar']:,.0f}",
+             "subtext": "If rainfall −30% and trucked-in water is needed",
+             "raw": wb["kpis"]["dry_year_emergency_cost_zar"]},
+        ], per_row=4)
+
+        st.markdown("### Water balance line items")
+        st.dataframe(
+            _safe_dataframe_for_display(pd.DataFrame(wb["rows"])),
+            width='stretch', hide_index=True,
+        )
+
+        st.markdown("### What this means")
+        for line in wb["narrative"]:
+            st.write(f"- {line}")
+
+        st.caption(wb["assumptions_note"])
+
+    # ========================= Portfolio & multi-site =========================
+    with tab_portfolio:
+        st.markdown("## 🧭 BL Turner portfolio view")
+        st.write(
+            "BL Turner operates across more than just the AD plant. This view "
+            "keeps the organic-waste, water-reseller and hydroponics lines "
+            "side by side so the platform reflects the full business."
+        )
+
+        lines = solution_lines()
+        site = site_by_name(preset)
+        solution_key = site.solution_line if site else "organic_waste"
+        playbook = solution_playbook(solution_key)
+
+        st.markdown(f"### Current view: **{playbook['headline']}**")
+        st.markdown("**What matters most for this solution type:**")
+        for item in playbook["watch_for"]:
+            st.write(f"- {item}")
+        st.markdown(f"_Positive story:_ {playbook['positive_story']}")
+
+        st.markdown("### All BL Turner sites")
+        portfolio_rows = []
+        for s in BL_TURNER_SITES:
+            portfolio_rows.append({
+                "Site": s.name,
+                "Solution line": s.solution_line.replace("_", " ").title(),
+                "Status": s.status.replace("_", " ").title(),
+                "Summary": s.summary,
+                "Key dependencies": "; ".join(s.key_dependencies),
+                "Key stakeholders": "; ".join(s.stakeholders),
+                "Data sharing note": s.data_sharing_note or "",
+            })
+        st.dataframe(
+            _safe_dataframe_for_display(pd.DataFrame(portfolio_rows)),
+            width='stretch', hide_index=True,
+        )
+
+    # ========================= Stakeholders & behaviour change =========================
+    with tab_engage:
+        st.markdown("## 🤝 Stakeholder engagement and behaviour change")
+        st.write(
+            "BL Turner's business depends on changing behaviour at the source: "
+            "getting municipalities, restaurants, DCs, abattoirs and farmers to "
+            "separate, package and deliver material differently. This view makes "
+            "those asks, and their value exchange, explicit."
+        )
+
+        st.markdown("### Behaviour-change plays by source type")
+        st.dataframe(
+            _safe_dataframe_for_display(pd.DataFrame(engagement_tracker_rows())),
+            width='stretch', hide_index=True,
+        )
+
+        st.markdown("### Data sharing agreement checklist")
+        for item in data_sharing_agreement_checklist():
+            st.write(f"- {item}")
 
     # ========================= LEAP · Evaluate =========================
     with tab2:
@@ -2309,3 +2439,35 @@ if results is not None:
         if not lc_df.empty:
             fig = build_landcover_bar(lc_df)
             st.plotly_chart(fig, width='stretch', key="detail_landcover_bar")
+
+    # ========================= How this is calculated =========================
+    with tab_prov:
+        st.markdown("## 📖 How this is calculated")
+        st.write(
+            "Every indicator below names its dataset, native resolution, "
+            "timeframe, and whether it is a direct measurement, a proxy, or a "
+            "screening estimate. This is how the platform addresses TNFD's "
+            "transparency expectation (Recommended Disclosure B3) and the "
+            "Grand Challenge rubric's transparency criterion."
+        )
+        st.dataframe(
+            _safe_dataframe_for_display(pd.DataFrame(provenance_table())),
+            width='stretch', hide_index=True,
+        )
+
+        st.markdown("### Scope boundaries")
+        scope = scope_boundary_statement()
+
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("**In scope**")
+            for item in scope["in_scope"]:
+                st.write(f"- {item}")
+        with c2:
+            st.markdown("**Out of scope**")
+            for item in scope["out_of_scope"]:
+                st.write(f"- {item}")
+
+        st.markdown("### Who should verify before a formal decision")
+        for item in scope["who_should_verify"]:
+            st.write(f"- {item}")
