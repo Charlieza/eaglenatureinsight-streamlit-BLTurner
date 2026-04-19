@@ -1208,7 +1208,7 @@ with hero_right:
     st.markdown(
         f"""
         <div class="eni-hero">
-            <div class="eni-eyebrow">BL Turner Group · Organic Waste · Anaerobic Digestion · Biogas</div>
+            <div class="eni-eyebrow">Client workspace</div>
             <div class="eni-title">{APP_TITLE}</div>
             <div class="eni-subtitle">{APP_SUBTITLE}</div>
             <div class="eni-subtitle" style="margin-bottom:18px;">
