@@ -363,9 +363,9 @@ def login_gate():
             <div class="login-brand-chip">EagleNatureInsight · BL Turner Group Pilot</div>
             <h1 class="login-title">Nature intelligence for organic waste, biogas and fertiliser.</h1>
             <div class="login-subtitle">
-                A TNFD-aligned LEAP workspace for BL Turner Group's 100 t/day anaerobic digestion
-                facility in KwaDukuza. Waste sourcing across eThekwini, iLembe, uMgungundlovu
-                and Western KZN — with site environmental screening and funder-ready outputs.
+                A TNFD-aligned LEAP workspace for BL Turner Group's anaerobic digestion
+                operations across a regional supply network — with site environmental screening
+                and funder-ready outputs.
             </div>
             <div class="login-feature-grid">
                 <div class="login-feature">
@@ -376,7 +376,7 @@ def login_gate():
                 <div class="login-feature">
                     <div class="login-feature-kicker">Evaluate</div>
                     <div class="login-feature-title">Waste frequency, tonnage, seasonality</div>
-                    <div class="login-feature-copy">Understand supply headroom against the 100 t/day nameplate, and where it comes from.</div>
+                    <div class="login-feature-copy">Understand supply headroom against plant processing capacity, and where it comes from.</div>
                 </div>
                 <div class="login-feature">
                     <div class="login-feature-kicker">Assess</div>
