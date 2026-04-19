@@ -23,6 +23,35 @@ from reportlab.platypus import (
     TableStyle,
 )
 
+import os
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.pdfbase.pdfmetrics import registerFontFamily
+
+_DEJAVU_REGULAR = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+_DEJAVU_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+_DEJAVU_OBLIQUE = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf"
+
+if os.path.exists(_DEJAVU_REGULAR):
+    pdfmetrics.registerFont(TTFont("Body", _DEJAVU_REGULAR))
+    if os.path.exists(_DEJAVU_BOLD):
+        pdfmetrics.registerFont(TTFont("Body-Bold", _DEJAVU_BOLD))
+    if os.path.exists(_DEJAVU_OBLIQUE):
+        pdfmetrics.registerFont(TTFont("Body-Italic", _DEJAVU_OBLIQUE))
+    registerFontFamily(
+        "Body",
+        normal="Body",
+        bold="Body-Bold" if os.path.exists(_DEJAVU_BOLD) else "Body",
+        italic="Body-Italic" if os.path.exists(_DEJAVU_OBLIQUE) else "Body",
+        boldItalic="Body-Bold" if os.path.exists(_DEJAVU_BOLD) else "Body",
+    )
+    _BODY_FONT = "Body"
+    _BODY_FONT_BOLD = "Body-Bold" if os.path.exists(_DEJAVU_BOLD) else "Body"
+else:
+    _BODY_FONT = "Helvetica"
+    _BODY_FONT_BOLD = "Helvetica-Bold"
+
+
 PAGE_WIDTH, PAGE_HEIGHT = A4
 
 BRAND = {
@@ -67,35 +96,35 @@ ABBREVIATIONS = {
 def _styles():
     styles = getSampleStyleSheet()
     styles.add(ParagraphStyle(
-        name="TitleBrand", parent=styles["Title"], fontName="Helvetica-Bold",
+        name="TitleBrand", parent=styles["Title"], fontName=_BODY_FONT_BOLD,
         fontSize=22, leading=26, textColor=BRAND["primary"], spaceAfter=8,
     ))
     styles.add(ParagraphStyle(
-        name="SubBrand", parent=styles["BodyText"], fontName="Helvetica",
+        name="SubBrand", parent=styles["BodyText"], fontName=_BODY_FONT,
         fontSize=10, leading=14, textColor=BRAND["subtext"], spaceAfter=12,
     ))
     styles.add(ParagraphStyle(
-        name="SectionBrand", parent=styles["Heading2"], fontName="Helvetica-Bold",
+        name="SectionBrand", parent=styles["Heading2"], fontName=_BODY_FONT_BOLD,
         fontSize=14, leading=18, textColor=BRAND["primary"], spaceBefore=8, spaceAfter=6,
     ))
     styles.add(ParagraphStyle(
-        name="SmallBrand", parent=styles["Heading3"], fontName="Helvetica-Bold",
+        name="SmallBrand", parent=styles["Heading3"], fontName=_BODY_FONT_BOLD,
         fontSize=11, leading=14, textColor=BRAND["text"], spaceBefore=6, spaceAfter=4,
     ))
     styles.add(ParagraphStyle(
-        name="BodyBrand", parent=styles["BodyText"], fontName="Helvetica",
+        name="BodyBrand", parent=styles["BodyText"], fontName=_BODY_FONT,
         fontSize=9.5, leading=13, textColor=BRAND["text"], spaceAfter=6, alignment=TA_LEFT,
     ))
     styles.add(ParagraphStyle(
-        name="MutedBrand", parent=styles["BodyText"], fontName="Helvetica",
+        name="MutedBrand", parent=styles["BodyText"], fontName=_BODY_FONT,
         fontSize=8.5, leading=12, textColor=BRAND["subtext"], spaceAfter=5,
     ))
     styles.add(ParagraphStyle(
-        name="TableCell", parent=styles["BodyText"], fontName="Helvetica",
+        name="TableCell", parent=styles["BodyText"], fontName=_BODY_FONT,
         fontSize=8.0, leading=10, textColor=BRAND["text"], alignment=TA_LEFT,
     ))
     styles.add(ParagraphStyle(
-        name="TableHead", parent=styles["BodyText"], fontName="Helvetica-Bold",
+        name="TableHead", parent=styles["BodyText"], fontName=_BODY_FONT_BOLD,
         fontSize=8.0, leading=10, textColor=colors.white, alignment=TA_LEFT,
     ))
     return styles
@@ -281,7 +310,7 @@ def _section_rule(story: List[Any]) -> None:
 
 def _page_number(canvas, doc):
     canvas.saveState()
-    canvas.setFont("Helvetica", 8)
+    canvas.setFont(_BODY_FONT, 8)
     canvas.setFillColor(BRAND["muted"])
     canvas.drawRightString(PAGE_WIDTH - 1.6 * cm, 1.2 * cm, f"Page {doc.page}")
     canvas.drawString(1.6 * cm, 1.2 * cm, "BL Turner Group · EagleNatureInsight™ report")
@@ -537,6 +566,109 @@ def _chart_block(story: List[Any], title: str, description: str, chart_data: Any
     story.append(Spacer(1, 0.15 * cm))
 
 
+
+def _water_balance_chart_bytes(water_balance):
+    """
+    Build a matplotlib horizontal bar chart showing each line item in the
+    water balance. Positive values (demand) on the right, negatives
+    (recycling / rainwater offsets) on the left, with a total 'municipal
+    supply needed' marker.
+
+    Returns raw PNG bytes (same convention as _monthly_supply_chart_bytes).
+    """
+    import io
+    import matplotlib.pyplot as plt
+
+    if not water_balance or not water_balance.get("rows"):
+        return None
+
+    try:
+        rows = water_balance["rows"]
+        labels = [r["Line item"] for r in rows]
+        values = [float(r["m³/day"]) for r in rows]
+        colors_list = []
+        for v in values:
+            if v < 0:
+                colors_list.append("#1f8f5f")  # offsets / green
+            elif v == 0:
+                colors_list.append("#9ca3af")  # neutral
+            else:
+                colors_list.append("#103c63")  # demand / brand
+
+        fig, ax = plt.subplots(figsize=(7.4, 4.0))
+        ax.barh(labels, values, color=colors_list)
+        ax.axvline(0, color="#111827", linewidth=0.8)
+        ax.set_xlabel("m³ per day (positive = demand, negative = offset)")
+        ax.set_title("Process water balance at nameplate 100 t/day")
+        ax.grid(True, axis="x", alpha=0.25)
+        ax.set_axisbelow(True)
+
+        # Annotate each bar with its value
+        for i, v in enumerate(values):
+            ha = "left" if v >= 0 else "right"
+            offset = 0.5 if v >= 0 else -0.5
+            ax.text(v + offset, i, f"{v:+.1f}", va="center", ha=ha, fontsize=8)
+
+        fig.tight_layout()
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=180, bbox_inches="tight")
+        plt.close(fig)
+        return buf.getvalue()
+    except Exception:
+        try:
+            plt.close("all")
+        except Exception:
+            pass
+        return None
+
+
+def _water_balance_posture_chart_bytes(water_balance):
+    """
+    Second small chart: current-year vs dry-year municipal water cost.
+    Helps BL Turner see the size of the dry-year exposure at a glance.
+    """
+    import io
+    import matplotlib.pyplot as plt
+
+    if not water_balance:
+        return None
+    try:
+        kpis = water_balance.get("kpis", {})
+        current_cost = float(kpis.get("annual_municipal_cost_zar", 0) or 0)
+        dry_extra = float(kpis.get("dry_year_emergency_cost_zar", 0) or 0)
+
+        if current_cost <= 0 and dry_extra <= 0:
+            return None
+
+        fig, ax = plt.subplots(figsize=(7.0, 3.4))
+        labels = ["Typical year", "Dry year (rainfall −30%)"]
+        baseline = [current_cost, current_cost]
+        extra = [0, dry_extra]
+
+        ax.bar(labels, baseline, color="#103c63", label="Baseline municipal cost")
+        ax.bar(labels, extra, bottom=baseline, color="#d9911a",
+               label="Dry-year emergency top-up")
+        ax.set_ylabel("Indicative annual cost (ZAR)")
+        ax.set_title("Water cost stress test")
+        ax.grid(True, axis="y", alpha=0.25)
+        ax.set_axisbelow(True)
+        ax.legend(frameon=False, loc="upper left", fontsize=8)
+
+        for i, total in enumerate([baseline[0] + extra[0], baseline[1] + extra[1]]):
+            ax.text(i, total, f"R {total:,.0f}", ha="center", va="bottom", fontsize=9)
+
+        fig.tight_layout()
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", dpi=180, bbox_inches="tight")
+        plt.close(fig)
+        return buf.getvalue()
+    except Exception:
+        try:
+            plt.close("all")
+        except Exception:
+            pass
+        return None
+
 def build_pdf_report(
     preset: str,
     category: str,
@@ -553,6 +685,14 @@ def build_pdf_report(
     stream_mix: Optional[List[Dict[str, Any]]] = None,
     district_mix: Optional[List[Dict[str, Any]]] = None,
     supply_headroom_data: Optional[Dict[str, float]] = None,
+    mol_insights: Optional[Dict[str, Any]] = None,
+    water_balance: Optional[Dict[str, Any]] = None,
+    bl_turner_sites: Optional[List[Any]] = None,
+    solution_playbook_dict: Optional[Dict[str, Any]] = None,
+    engagement_rows: Optional[List[Dict[str, Any]]] = None,
+    data_sharing_checklist: Optional[List[str]] = None,
+    provenance_rows: Optional[List[Dict[str, Any]]] = None,
+    scope_boundary: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> bytes:
     buffer = io.BytesIO()
@@ -635,6 +775,8 @@ def build_pdf_report(
     story.append(_metric_table(overview_rows, (7.2 * cm, 9.8 * cm)))
     _section_rule(story)
 
+    _portfolio_section(story, bl_turner_sites, solution_playbook_dict)
+
     # --- 4. TNFD core metrics ---
     story.append(Paragraph("4. TNFD Core Global Disclosure Metrics", _STYLES["SectionBrand"]))
     story.append(Paragraph(
@@ -705,10 +847,14 @@ def build_pdf_report(
         story.append(Paragraph("5e. Continuity of supply risks", _STYLES["SmallBrand"]))
         cr_rows = [["Risk", "Severity", "Finding", "Mitigation"]]
         for r in continuity_risks:
-            cr_rows.append([r.get("risk", ""), r.get("severity", ""), r.get("finding", ""), r.get("mitigation", "")])
+            severity = r.get("severity", r.get("level", ""))
+            finding = r.get("finding", r.get("meaning", r.get("indicator", "")))
+            cr_rows.append([r.get("risk", ""), severity, finding, r.get("mitigation", "")])
         story.append(_matrix_table(cr_rows, (3.8 * cm, 1.8 * cm, 5.6 * cm, 5.8 * cm)))
 
     _section_rule(story)
+
+    _water_balance_section(story, water_balance)
 
     # --- 6. LEAP summary ---
     story.append(Paragraph("6. LEAP summary (Locate, Evaluate, Assess, Prepare)", _STYLES["SectionBrand"]))
@@ -782,6 +928,8 @@ def build_pdf_report(
     _add_bullets(story, risk.get("recs") or [])
     _section_rule(story)
 
+    _stakeholder_section(story, engagement_rows, data_sharing_checklist)
+
     # --- 12. Monitoring ---
     story.append(Paragraph("12. Monitoring and review frequency", _STYLES["SectionBrand"]))
     _add_bullets(story, [
@@ -817,6 +965,8 @@ def build_pdf_report(
     story.append(Paragraph("15. Detailed metrics appendix", _STYLES["SectionBrand"]))
     appendix_rows = sorted((str(k), _safe_text(v)) for k, v in metrics.items() if has_data(v))
     story.append(_metric_table(appendix_rows, (6.0 * cm, 11.0 * cm)))
+
+    _provenance_appendix(story, provenance_rows, scope_boundary)
 
     doc.build(story, onFirstPage=_page_number, onLaterPages=_page_number)
     return buffer.getvalue()
