@@ -157,7 +157,7 @@ except ModuleNotFoundError:
 st.set_page_config(page_title="EagleNatureInsight", layout="wide")
 
 APP_TITLE = "EagleNatureInsight"
-APP_SUBTITLE = "Nature intelligence for organic waste, biogas and fertiliser operations"
+APP_SUBTITLE = "    Nature intelligence delivered through a simple, structured workflow"
 APP_TAGLINE = "Locate • Evaluate • Assess • Prepare"
 
 CURRENT_YEAR = date.today().year
