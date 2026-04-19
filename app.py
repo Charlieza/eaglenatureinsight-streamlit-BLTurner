@@ -399,7 +399,7 @@ def login_gate():
         st.markdown(
             """
             <div class="login-panel-top">
-                <div class="login-panel-kicker">Welcome</div>
+                <div class="login-panel-kicker">WELCOME BACK</div>
                 <h2 class="login-panel-title">Sign in to continue</h2>
             </div>
             <div class="login-panel-copy">
