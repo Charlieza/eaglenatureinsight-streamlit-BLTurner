@@ -9,9 +9,10 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - name: Ping app with retries
+      - name: Ping Streamlit health endpoint
         run: |
           URL="https://blturner-pilot.streamlit.app/_stcore/health"
+
           for i in 1 2 3; do
             code=$(curl \
               --silent \
@@ -22,10 +23,13 @@ jobs:
               "$URL" || true)
 
             if [ "$code" = "200" ]; then
+              echo "App is awake"
               exit 0
             fi
 
             echo "Attempt $i failed with HTTP $code"
             sleep 20
           done
+
+          echo "All attempts failed"
           exit 1
