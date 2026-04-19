@@ -840,6 +840,153 @@ def _mol_threat_profile_table(mol_insights: Dict[str, Any]) -> Table:
     return tbl
 
 
+def _portfolio_section(story, bl_turner_sites, solution_playbook_dict):
+    if not bl_turner_sites and not solution_playbook_dict:
+        return
+
+    story.append(Paragraph("3b. BL Turner portfolio and solution context", _STYLES["SectionBrand"]))
+
+    if solution_playbook_dict:
+        story.append(Paragraph(
+            f"<b>Current solution line:</b> {_safe_text(solution_playbook_dict.get('headline'))}",
+            _STYLES["BodyBrand"],
+        ))
+        watch_for = solution_playbook_dict.get("watch_for") or []
+        if watch_for:
+            story.append(Paragraph("<b>What matters most for this solution type</b>", _STYLES["SmallBrand"]))
+            _add_bullets(story, watch_for)
+        positive_story = solution_playbook_dict.get("positive_story")
+        if positive_story:
+            story.append(Paragraph(
+                f"<b>Positive story:</b> {_safe_text(positive_story)}",
+                _STYLES["BodyBrand"],
+            ))
+
+    if bl_turner_sites:
+        rows = [["Site", "Solution line", "Status", "Summary"]]
+        for s in bl_turner_sites:
+            rows.append([
+                _safe_text(getattr(s, "name", "")),
+                _safe_text(str(getattr(s, "solution_line", "")).replace("_", " ").title()),
+                _safe_text(str(getattr(s, "status", "")).replace("_", " ").title()),
+                _safe_text(getattr(s, "summary", "")),
+            ])
+        story.append(Spacer(1, 0.1 * cm))
+        story.append(_matrix_table(rows, (4.8 * cm, 3.0 * cm, 2.7 * cm, 6.0 * cm)))
+
+    _section_rule(story)
+
+
+def _water_balance_section(story, water_balance):
+    if not water_balance:
+        return
+
+    story.append(Paragraph("5f. Process water balance", _STYLES["SectionBrand"]))
+    story.append(Paragraph(
+        "This screening-level water balance translates plant throughput assumptions and current "
+        "rainfall context into a practical view of process-water demand.",
+        _STYLES["BodyBrand"],
+    ))
+
+    kpis = water_balance.get("kpis", {})
+    wb_rows = [
+        ("Gross water demand", fmt_num(kpis.get("gross_demand_m3_day"), 1, " m³/day")),
+        ("Net external demand", fmt_num(kpis.get("net_demand_m3_day"), 1, " m³/day")),
+        ("Rainwater contribution", fmt_num(kpis.get("rainwater_m3_day"), 1, " m³/day")),
+        ("Municipal supply needed", fmt_num(kpis.get("municipal_m3_day"), 1, " m³/day")),
+        ("Annual municipal cost", f"R {float(kpis.get('annual_municipal_cost_zar', 0)):,.0f}" if has_data(kpis.get("annual_municipal_cost_zar")) else "Not available"),
+        ("Dry-year emergency cost", f"R {float(kpis.get('dry_year_emergency_cost_zar', 0)):,.0f}" if has_data(kpis.get("dry_year_emergency_cost_zar")) else "Not available"),
+        ("Operating posture", _safe_text(kpis.get("posture"))),
+    ]
+    story.append(_metric_table(wb_rows, (6.5 * cm, 10.5 * cm)))
+    story.append(Spacer(1, 0.15 * cm))
+
+    rows = [["Line item", "m³/day", "Note"]]
+    for r in water_balance.get("rows", []):
+        rows.append([
+            _safe_text(r.get("Line item")),
+            _safe_text(r.get("m³/day")),
+            _safe_text(r.get("Note")),
+        ])
+    if len(rows) > 1:
+        story.append(_matrix_table(rows, (5.4 * cm, 2.2 * cm, 9.0 * cm)))
+
+    for line in water_balance.get("narrative", []):
+        story.append(Paragraph(f"• {_safe_text(line)}", _STYLES["BodyBrand"]))
+
+    if water_balance.get("assumptions_note"):
+        story.append(Paragraph(_safe_text(water_balance.get("assumptions_note")), _STYLES["MutedBrand"]))
+
+    _section_rule(story)
+
+
+def _stakeholder_section(story, engagement_rows, data_sharing_checklist):
+    if not engagement_rows and not data_sharing_checklist:
+        return
+
+    story.append(Paragraph("11b. Stakeholder engagement and data sharing", _STYLES["SectionBrand"]))
+
+    if engagement_rows:
+        story.append(Paragraph(
+            "This section captures the behaviour-change asks and engagement posture needed across "
+            "municipalities, restaurants, DCs, abattoirs and farmers.",
+            _STYLES["BodyBrand"],
+        ))
+        rows = [[
+            "Source type", "What BL Turner is asking", "Why they should care", "Relationship stage"
+        ]]
+        for r in engagement_rows:
+            rows.append([
+                _safe_text(r.get("Source type")),
+                _safe_text(r.get("What we're asking them to do")),
+                _safe_text(r.get("Why they should care")),
+                _safe_text(r.get("Relationship stage")),
+            ])
+        story.append(_matrix_table(rows, (3.2 * cm, 4.8 * cm, 4.8 * cm, 4.2 * cm)))
+        story.append(Spacer(1, 0.15 * cm))
+
+    if data_sharing_checklist:
+        story.append(Paragraph("Data sharing checklist", _STYLES["SmallBrand"]))
+        _add_bullets(story, data_sharing_checklist)
+
+    _section_rule(story)
+
+
+def _provenance_appendix(story, provenance_rows, scope_boundary):
+    if not provenance_rows and not scope_boundary:
+        return
+
+    story.append(PageBreak())
+    story.append(Paragraph("16. How this report was calculated", _STYLES["SectionBrand"]))
+
+    if provenance_rows:
+        rows = [[
+            "Indicator / output", "Dataset", "Native resolution", "Timeframe", "Nature of value", "Key caveat"
+        ]]
+        for r in provenance_rows:
+            rows.append([
+                _safe_text(r.get("Indicator / output")),
+                _safe_text(r.get("Dataset")),
+                _safe_text(r.get("Native resolution")),
+                _safe_text(r.get("Timeframe")),
+                _safe_text(r.get("Nature of value")),
+                _safe_text(r.get("Key caveat")),
+            ])
+        story.append(_matrix_table(rows, (3.1 * cm, 3.5 * cm, 2.1 * cm, 2.2 * cm, 2.8 * cm, 3.3 * cm)))
+        story.append(Spacer(1, 0.2 * cm))
+
+    if scope_boundary:
+        story.append(Paragraph("Scope boundaries", _STYLES["SmallBrand"]))
+        for title, key in [
+            ("In scope", "in_scope"),
+            ("Out of scope", "out_of_scope"),
+            ("Who should verify before formal decisions", "who_should_verify"),
+        ]:
+            items = scope_boundary.get(key) or []
+            if items:
+                story.append(Paragraph(f"<b>{title}</b>", _STYLES["BodyBrand"]))
+                _add_bullets(story, items)
+
 def build_pdf_report(
     preset: str,
     category: str,
