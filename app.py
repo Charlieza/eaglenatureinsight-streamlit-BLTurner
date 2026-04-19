@@ -424,7 +424,7 @@ def login_gate():
         st.markdown(
             """
             <div class="login-footer">
-                <span>BL Turner pilot workspace</span>
+                <span>Client workspace</span>
                 <span>Secure login</span>
             </div>
             """,
