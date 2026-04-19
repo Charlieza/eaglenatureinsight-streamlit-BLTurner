@@ -1543,6 +1543,16 @@ if run:
             },
         ]
 
+        # PDF support payloads for the additional operational tabs
+        water_balance = compute_water_balance(metrics)
+        site_obj = site_by_name(preset)
+        solution_key = site_obj.solution_line if site_obj else "organic_waste"
+        solution_playbook_dict = solution_playbook(solution_key)
+        engagement_rows = engagement_tracker_rows()
+        data_sharing_checklist = data_sharing_agreement_checklist()
+        provenance_rows = provenance_table()
+        scope_boundary = scope_boundary_statement()
+
         # PDF report
         pdf_bytes = build_pdf_report(
             preset=preset,
@@ -1561,6 +1571,13 @@ if run:
             district_mix=district_mix,
             supply_headroom_data=headroom,
             mol_insights=mol_insights,
+            water_balance=water_balance,
+            bl_turner_sites=BL_TURNER_SITES,
+            solution_playbook_dict=solution_playbook_dict,
+            engagement_rows=engagement_rows,
+            data_sharing_checklist=data_sharing_checklist,
+            provenance_rows=provenance_rows,
+            scope_boundary=scope_boundary,
         )
 
         st.session_state["report_payload"] = {
@@ -1602,6 +1619,12 @@ if run:
             "capacity_risk": capacity_risk,
             "digestate_outputs": digestate_outputs,
             "mol_insights": mol_insights,
+            "water_balance": water_balance,
+            "engagement_rows": engagement_rows,
+            "data_sharing_checklist": data_sharing_checklist,
+            "provenance_rows": provenance_rows,
+            "scope_boundary": scope_boundary,
+            "solution_playbook_dict": solution_playbook_dict,
         }
 
     st.success("Assessment complete. Scroll down for the full LEAP view and download the PDF report.")
