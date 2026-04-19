@@ -11,18 +11,17 @@ jobs:
     steps:
       - name: Ping app with retries
         run: |
-          URL="https://blturner-pilot.streamlit.app/"
+          URL="https://blturner-pilot.streamlit.app/_stcore/health"
           for i in 1 2 3; do
             code=$(curl \
               --silent \
               --show-error \
               --output /dev/null \
               --write-out "%{http_code}" \
-              --max-redirs 10 \
               --user-agent "Mozilla/5.0" \
               "$URL" || true)
 
-            if [ "$code" = "200" ] || [ "$code" = "304" ]; then
+            if [ "$code" = "200" ]; then
               exit 0
             fi
 
