@@ -1212,25 +1212,25 @@ with hero_right:
             <div class="eni-title">{APP_TITLE}</div>
             <div class="eni-subtitle">{APP_SUBTITLE}</div>
             <div class="eni-subtitle" style="margin-bottom:18px;">
-                A TNFD LEAP workspace for the 100 t/day AD plant at Portion 159 of New Guelderland,
-                KwaDukuza — with a dedicated view of feedstock sourcing across eThekwini, iLembe,
-                uMgungundlovu and Western KZN.
+                A TNFD LEAP workspace for a commercial-scale anaerobic digestion (AD) facility —
+                with a dedicated view of feedstock sourcing and digestate utilisation across the
+                regional supply network.
             </div>
             <div class="eni-step-grid">
                 <div class="eni-step">
                     <div class="eni-step-num">LEAP · Locate</div>
                     <div class="eni-step-title">Plant & supply network</div>
-                    <div class="eni-step-copy">Main site, waste sources and digestate off-take areas on one map.</div>
+                    <div class="eni-step-copy">Main facility, waste sources and digestate off-take areas on one map.</div>
                 </div>
                 <div class="eni-step">
                     <div class="eni-step-num">LEAP · Evaluate</div>
                     <div class="eni-step-title">Feedstock frequency & tonnage</div>
-                    <div class="eni-step-copy">Daily, weekly and seasonal supply projections against the 100 t/day nameplate.</div>
+                    <div class="eni-step-copy">Daily, weekly and seasonal supply projections against plant processing capacity.</div>
                 </div>
                 <div class="eni-step">
                     <div class="eni-step-num">LEAP · Assess</div>
                     <div class="eni-step-title">Continuity of supply</div>
-                    <div class="eni-step-copy">Concentration, logistics, biosecurity and municipal-contract dependencies.</div>
+                    <div class="eni-step-copy">Concentration, logistics, biosecurity and contract dependencies.</div>
                 </div>
                 <div class="eni-step">
                     <div class="eni-step-num">LEAP · Prepare</div>
