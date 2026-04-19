@@ -154,9 +154,9 @@ except ModuleNotFoundError:
     )
 
 
-st.set_page_config(page_title="EagleNatureInsight — BL Turner Group", layout="wide")
+st.set_page_config(page_title="EagleNatureInsight", layout="wide")
 
-APP_TITLE = "EagleNatureInsight — BL Turner Group"
+APP_TITLE = "EagleNatureInsight"
 APP_SUBTITLE = "Nature intelligence for organic waste, biogas and fertiliser operations"
 APP_TAGLINE = "Locate • Evaluate • Assess • Prepare"
 
